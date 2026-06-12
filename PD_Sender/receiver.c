@@ -62,6 +62,16 @@ typedef struct
     uint8_t index;
 } MA_Filter_t;
 
+#define pA_L   6000
+#define pA_H   8000
+
+#define pB_L   1900
+#define pB_H   867
+
+#define pC_L   1367
+#define pC_H   1567
+
+
 
 /* USER CODE END PD */
 
@@ -101,14 +111,10 @@ uint8_t flag_Lora_Rx = 0;
 
 uint16_t config_lora = 0xFA;
 
-uint8_t cnt = 0;
 
-		uint16_t sendOK = 0;
 		uint16_t recOK = 0;
 		
-		uint32_t cycle = 20000;
 		
-		//uint8_t enable_detect_phase = 0;
 				
 		uint64_t last_zc = 0;
 		uint64_t now_zc = 0;
@@ -118,31 +124,13 @@ uint8_t cnt = 0;
 
 
 
-volatile uint8_t flag_enable_zc = 0;
+uint16_t adc_raw_pS = 0;
+uint16_t adc_filtered_pS = 0;
 
-volatile uint16_t zc_capture_CH1 = 0;
-volatile uint32_t trigger_tim2_CH1 = 0;
 
-// sender
-volatile uint8_t trigger_send_lora = 0;
+uint16_t pS_cur = 0;
+uint16_t pS_prev = 0;
 
-uint16_t adc_raw_pA = 0;
-uint16_t adc_filtered_pA = 0;
-
-uint16_t adc_raw_pB = 0;
-uint16_t adc_filtered_pB = 0;
-
-uint16_t adc_raw_pC = 0;
-uint16_t adc_filtered_pC = 0;
-
-uint16_t pA_cur = 0;
-uint16_t pA_prev = 0;
-
-uint16_t pB_cur = 0;
-uint16_t pB_prev = 0;
-
-uint16_t pC_cur = 0;
-uint16_t pC_prev = 0;
 
 uint32_t ovf_tim3 = 0;
 
@@ -197,11 +185,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		/* Prevent unused argument(s) compilation warning */
 		UNUSED(GPIO_Pin);
 
-//		if(GPIO_Pin == vLoRa.DIO0_pin)
-//		{
-//			num_RX_irq_LoRa++;
-//			flag_Lora_Rx = 1;	 
-//		}
+		if(GPIO_Pin == vLoRa.DIO0_pin)
+		{
+			num_RX_irq_LoRa++;
+			flag_Lora_Rx = 1;	 
+		}
 	
 	}
 
@@ -296,12 +284,12 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
 
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw_pA, 1);
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw_pS, 1);
 	
   
 
-  MA_Filter_t adcFilter_pA;
-  MA_Init(&adcFilter_pA, 2048);
+  MA_Filter_t adcFilter_pS;
+  MA_Init(&adcFilter_pS, 2048);
 	
 	HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
 		
@@ -327,17 +315,15 @@ int main(void)
     if(flag_cnt_50us >= 2)    // 50us or 100us
     {
       flag_cnt_50us = 0;
-      flag_tx_log = 1;
-      adc_filtered_pA = MA_Update(&adcFilter_pA, adc_raw_pA);
+      //flag_tx_log = 1;
+      adc_filtered_pS = MA_Update(&adcFilter_pS, adc_raw_pS);
 
-      pA_cur = adc_filtered_pA;
+      pS_cur = adc_filtered_pS;
 
-      if(pA_cur != 0 && pA_prev != 0 && flag_enable_zc == 1)
+      if(pS_cur != 0 && pS_prev != 0)
       {
-          if(pA_prev <= ZERO_PA && pA_cur > ZERO_PA)
+          if(pS_prev <= ZERO_PS && pS_cur > ZERO_PS)
           {
-              //trigger_send_lora = 1;
-              flag_enable_zc = 0;
               HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
               now_zc = GetTimeUs();
               interval_zc = now_zc - last_zc;
@@ -349,57 +335,46 @@ int main(void)
           }
       }
 
-      pA_prev = pA_cur;
+      pS_prev = pS_cur;
     }
 		
-		if(flag_tx_log == 1){
+		// code mach receiver
+    if(flag_Lora_Rx == 1)
+    {				
+      flag_Lora_Rx = 0;
+			send_ok = LoRa_receive(&vLoRa, (uint8_t*)RX_LoRa_buff, 5);
+
+      checksum = RX_LoRa_buff[0] + RX_LoRa_buff[1] + RX_LoRa_buff[2] + RX_LoRa_buff[3];
+
+      if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4])
+      {
+          HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
+          rx_time = GetTimeUs();
+          deltaT = (rx_time - last_zc)%20000;
+
+          if(deltaT > pA_L || deltaT < pA_H)
+          {
+            
+          }
+
+          if(deltaT > pB_L || deltaT < pB_H)
+          {
+            
+          }
+
+          if(deltaT > pC_L || deltaT < pC_H)
+          {
+            
+          }
+      }
+    }
+
+
+    if(flag_tx_log == 1){
 			flag_tx_log = 0;
-			sprintf(uart_tx_log, "%u %u %u\n",++stt, adc_raw_pA, adc_filtered_pA);
+			sprintf(uart_tx_log, "%u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS);
 			HAL_UART_Transmit_DMA(&huart2, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
 		}
-		
-		// code mach sender
-    if(trigger_send_lora == 1)
-    {				
-			TX_toRB[0] = 0xAA;
-			TX_toRB[1] = 0x55;
-			TX_toRB[2] = 1;
-			TX_toRB[3] = cnt++;
-			TX_toRB[4] = TX_toRB[0] + TX_toRB[1] + TX_toRB[2] + TX_toRB[3];
-			TX_toRB[5] = 6;
-			TX_toRB[6] = 7;
-			TX_toRB[7] = 8;
-			TX_toRB[8] = 9;
-			TX_toRB[9] = 10;
-			TX_toRB[10] = 11;
-			TX_toRB[11] = 12;
-			send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_toRB, 5, 10000000);
-			HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
-
-			
-			if(send_ok == 1){
-				 HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
-					sendOK++;
-			}
-			trigger_send_lora = 0;
-    }
-	
-		
-		
-//			if(flag_Lora_Rx == 1){
-//				flag_Lora_Rx = 0;
-//				
-//				LoRa_receive(&vLoRa, (uint8_t*)RX_LoRa, 12);
-//				
-//				if(memcmp(RX_LoRa, TX_toRB, 12) == 0){
-//					HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
-//					interval = TIM3->CNT - start;;
-//					//interval = HAL_GetTick() - start;
-//					recOK++;
-//				}
-//			}
-
-		
   }
   /* USER CODE END 3 */
 }
