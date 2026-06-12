@@ -1,0 +1,28 @@
+--cpu Cortex-M3
+"pdd_master\startup_stm32f103xb.o"
+"pdd_master\lora.o"
+"pdd_master\main.o"
+"pdd_master\stm32f1xx_it.o"
+"pdd_master\stm32f1xx_hal_msp.o"
+"pdd_master\stm32f1xx_hal_gpio_ex.o"
+"pdd_master\stm32f1xx_hal_adc.o"
+"pdd_master\stm32f1xx_hal_adc_ex.o"
+"pdd_master\stm32f1xx_hal.o"
+"pdd_master\stm32f1xx_hal_rcc.o"
+"pdd_master\stm32f1xx_hal_rcc_ex.o"
+"pdd_master\stm32f1xx_hal_gpio.o"
+"pdd_master\stm32f1xx_hal_dma.o"
+"pdd_master\stm32f1xx_hal_cortex.o"
+"pdd_master\stm32f1xx_hal_pwr.o"
+"pdd_master\stm32f1xx_hal_flash.o"
+"pdd_master\stm32f1xx_hal_flash_ex.o"
+"pdd_master\stm32f1xx_hal_exti.o"
+"pdd_master\stm32f1xx_hal_spi.o"
+"pdd_master\stm32f1xx_hal_tim.o"
+"pdd_master\stm32f1xx_hal_tim_ex.o"
+"pdd_master\stm32f1xx_hal_uart.o"
+"pdd_master\system_stm32f1xx.o"
+--strict --scatter "PDD_Master\PDD_Master.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "PDD_Master.map" -o PDD_Master\PDD_Master.axf
