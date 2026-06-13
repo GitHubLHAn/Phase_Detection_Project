@@ -153,87 +153,77 @@
         <Ww>
           <count>0</count>
           <WinNumber>1</WinNumber>
-          <ItemText>ovftim3,0x0A</ItemText>
+          <ItemText>send_ok,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>1</count>
           <WinNumber>1</WinNumber>
-          <ItemText>flag_send,0x0A</ItemText>
+          <ItemText>tick,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>2</count>
           <WinNumber>1</WinNumber>
-          <ItemText>send_ok,0x0A</ItemText>
+          <ItemText>config_lora</ItemText>
         </Ww>
         <Ww>
           <count>3</count>
           <WinNumber>1</WinNumber>
-          <ItemText>tick,0x0A</ItemText>
+          <ItemText>TX_Lora_buff</ItemText>
         </Ww>
         <Ww>
           <count>4</count>
           <WinNumber>1</WinNumber>
-          <ItemText>config_lora</ItemText>
+          <ItemText>cycle,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>5</count>
           <WinNumber>1</WinNumber>
-          <ItemText>RX_LoRa</ItemText>
+          <ItemText>sendOK,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>6</count>
           <WinNumber>1</WinNumber>
-          <ItemText>TX_toRB</ItemText>
+          <ItemText>cnt_timetick,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>7</count>
           <WinNumber>1</WinNumber>
-          <ItemText>cycle,0x0A</ItemText>
+          <ItemText>num_RX_irq_LoRa,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>8</count>
           <WinNumber>1</WinNumber>
-          <ItemText>sendOK,0x0A</ItemText>
+          <ItemText>flag_enable_zc,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>9</count>
           <WinNumber>1</WinNumber>
-          <ItemText>recOK,0x0A</ItemText>
+          <ItemText>flag_get_zero,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>10</count>
           <WinNumber>1</WinNumber>
-          <ItemText>cnt_timetick,0x0A</ItemText>
+          <ItemText>offset_ZpA,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>11</count>
           <WinNumber>1</WinNumber>
-          <ItemText>num_RX_irq_LoRa,0x0A</ItemText>
+          <ItemText>now_zc,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>12</count>
           <WinNumber>1</WinNumber>
-          <ItemText>flag_enable_zc,0x0A</ItemText>
+          <ItemText>last_zc,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>13</count>
           <WinNumber>1</WinNumber>
-          <ItemText>capture_buffer,0x0A</ItemText>
+          <ItemText>interval_zc,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>14</count>
           <WinNumber>1</WinNumber>
-          <ItemText>cnt_capture,0x0A</ItemText>
-        </Ww>
-        <Ww>
-          <count>15</count>
-          <WinNumber>1</WinNumber>
-          <ItemText>flag_enable_zc</ItemText>
-        </Ww>
-        <Ww>
-          <count>16</count>
-          <WinNumber>1</WinNumber>
-          <ItemText>adc_raw_val,0x0A</ItemText>
+          <ItemText>log_buff,0x0A</ItemText>
         </Ww>
       </WatchWindow1>
       <Tracepoint>

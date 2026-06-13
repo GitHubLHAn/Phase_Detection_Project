@@ -55,6 +55,8 @@
 
 #define MA_SIZE 5
 
+#define ZERO_PA 2050
+
 typedef struct
 {
     uint16_t buf[MA_SIZE];
@@ -77,7 +79,7 @@ DMA_HandleTypeDef hdma_adc1;
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim1;
-TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
@@ -106,18 +108,19 @@ uint8_t cnt = 0;
 		uint16_t sendOK = 0;
 		uint16_t recOK = 0;
 		
-		uint32_t cycle = 20000;
+		uint32_t cycle = 80000;
 		
 		//uint8_t enable_detect_phase = 0;
 				
 		uint64_t last_zc = 0;
 		uint64_t now_zc = 0;
-		uint64_t interval_zc = 0;
+		uint32_t interval_zc = 0;
 		
 		// uint8_t phase_detected = 0;
 
+//uint16_t calib_zero_buff[1000];
 
-
+volatile uint8_t flag_cnt_50us = 0;
 volatile uint8_t flag_enable_zc = 0;
 
 volatile uint16_t zc_capture_CH1 = 0;
@@ -157,6 +160,9 @@ uint32_t stt = 0;
 uint16_t log_buff[1000];
 uint16_t log_index = 0;
 
+volatile uint8_t flag_get_zero = 0;
+uint16_t offset_ZpA = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -164,11 +170,11 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_TIM1_Init(void);
-static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 
@@ -234,7 +240,7 @@ uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
 }
 
 uint64_t GetTimeUs(){
-  return ovf_tim3 * 65536 + TIM->CNT;
+  return ovf_tim3 * 65536 + TIM3->CNT;
 }
 
 /* USER CODE END 0 */
@@ -270,11 +276,11 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_TIM1_Init();
-  MX_TIM2_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   MX_SPI1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 	  HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_RESET);
 
@@ -320,60 +326,76 @@ int main(void)
 		if(cnt_timetick >= cycle)
     {
       cnt_timetick = 0;
-			HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
+			//HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
       flag_enable_zc = 1;
     }
 
     if(flag_cnt_50us >= 2)    // 50us or 100us
     {
       flag_cnt_50us = 0;
-      flag_tx_log = 1;
       adc_filtered_pA = MA_Update(&adcFilter_pA, adc_raw_pA);
 
       pA_cur = adc_filtered_pA;
 
       if(pA_cur != 0 && pA_prev != 0 && flag_enable_zc == 1)
+			//if(pA_cur != 0 && pA_prev != 0)
       {
           if(pA_prev <= ZERO_PA && pA_cur > ZERO_PA)
           {
+							now_zc = GetTimeUs();
+							HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
+						
+							TX_Lora_buff[0] = 0xAA;
+							TX_Lora_buff[1] = 0x55;
+							TX_Lora_buff[2] = 1;
+							TX_Lora_buff[3] = cnt++;
+							TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
+							TX_Lora_buff[5] = 6;
+							TX_Lora_buff[6] = 7;
+							TX_Lora_buff[7] = 8;
+							TX_Lora_buff[8] = 9;
+							TX_Lora_buff[9] = 10;
+							TX_Lora_buff[10] = 11;
+							TX_Lora_buff[11] = 12;
+							send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
+							HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
+
+			
+							if(send_ok == 1){
+								 HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
+									sendOK++;
+							}
+						
               //trigger_send_lora = 1;
               flag_enable_zc = 0;
-              HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
-              now_zc = GetTimeUs();
+              
+              
               interval_zc = now_zc - last_zc;
-              if(log_index < 1000)
-              {
-                  log_buff[log_index++] = interval_zc;
-              }
               last_zc = now_zc;
+							//flag_tx_log = 1;
           }
       }
 
       pA_prev = pA_cur;
     }
 		
-		if(flag_tx_log == 1){
-			flag_tx_log = 0;
-			sprintf(uart_tx_log, "%u %u %u\n",++stt, adc_raw_pA, adc_filtered_pA);
-			HAL_UART_Transmit_DMA(&huart2, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
-		}
-		
+
 		// code mach sender
     if(trigger_send_lora == 1)
     {				
-			TX_toRB[0] = 0xAA;
-			TX_toRB[1] = 0x55;
-			TX_toRB[2] = 1;
-			TX_toRB[3] = cnt++;
-			TX_toRB[4] = TX_toRB[0] + TX_toRB[1] + TX_toRB[2] + TX_toRB[3];
-			TX_toRB[5] = 6;
-			TX_toRB[6] = 7;
-			TX_toRB[7] = 8;
-			TX_toRB[8] = 9;
-			TX_toRB[9] = 10;
-			TX_toRB[10] = 11;
-			TX_toRB[11] = 12;
-			send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_toRB, 5, 10000000);
+			TX_Lora_buff[0] = 0xAA;
+			TX_Lora_buff[1] = 0x55;
+			TX_Lora_buff[2] = 1;
+			TX_Lora_buff[3] = cnt++;
+			TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
+			TX_Lora_buff[5] = 6;
+			TX_Lora_buff[6] = 7;
+			TX_Lora_buff[7] = 8;
+			TX_Lora_buff[8] = 9;
+			TX_Lora_buff[9] = 10;
+			TX_Lora_buff[10] = 11;
+			TX_Lora_buff[11] = 12;
+			send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
 			HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
 
 			
@@ -383,6 +405,25 @@ int main(void)
 			}
 			trigger_send_lora = 0;
     }
+		
+		
+		if(flag_get_zero){
+			flag_get_zero = 0;
+			
+			uint32_t sum = 0;
+			for(uint16_t i=0; i<1000; i++){
+				sum+= adc_raw_pA;
+				HAL_Delay(1);
+			}	
+			offset_ZpA = sum/1000;
+		}
+		
+		if(flag_tx_log == 1){
+			flag_tx_log = 0;
+			sprintf(uart_tx_log, "%u %u %u %d\n",++stt, adc_raw_pA, adc_filtered_pA, interval_zc);
+			HAL_UART_Transmit_DMA(&huart2, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
+		}
+		
 	
 		
 		
@@ -582,60 +623,47 @@ static void MX_TIM1_Init(void)
 }
 
 /**
-  * @brief TIM2 Initialization Function
+  * @brief TIM3 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_TIM2_Init(void)
+static void MX_TIM3_Init(void)
 {
 
-  /* USER CODE BEGIN TIM2_Init 0 */
+  /* USER CODE BEGIN TIM3_Init 0 */
 
-  /* USER CODE END TIM2_Init 0 */
+  /* USER CODE END TIM3_Init 0 */
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
 
-  /* USER CODE BEGIN TIM2_Init 1 */
+  /* USER CODE BEGIN TIM3_Init 1 */
 
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 71;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 71;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 65535;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 15;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
+  /* USER CODE BEGIN TIM3_Init 2 */
 
-  /* USER CODE END TIM2_Init 2 */
+  /* USER CODE END TIM3_Init 2 */
 
 }
 
@@ -781,7 +809,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pins : DIO0_Pin PB10 */
   GPIO_InitStruct.Pin = DIO0_Pin|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB6 */
