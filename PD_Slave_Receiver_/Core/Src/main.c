@@ -96,7 +96,7 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 uint32_t tick = 0;
-uint32_t cnt_timetick = 0;
+volatile uint32_t cnt_timetick = 0;
 
 uint32_t cycle = 20000;
 
@@ -130,7 +130,7 @@ uint16_t pS_cur = 0;
 uint16_t pS_prev = 0;
 
 
-uint32_t ovf_tim3 = 0;
+volatile uint32_t ovf_tim3 = 0;
 
 
 
@@ -169,7 +169,16 @@ static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 uint64_t GetTimeUs(){
-  return ovf_tim3 * 65536 + TIM3->CNT;
+  uint32_t ovf1, ovf2;
+  uint32_t cnt;
+
+  do {
+    ovf1 = ovf_tim3;
+    cnt = TIM3->CNT;
+    ovf2 = ovf_tim3;
+  } while (ovf1 != ovf2); // Guard against rollover during reading
+
+  return ((uint64_t)ovf1 << 16) + cnt;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -304,7 +313,7 @@ int main(void)
   
 
   MA_Filter_t adcFilter_pS;
-  MA_Init(&adcFilter_pS, 2048);
+  MA_Init(&adcFilter_pS, ZERO_PA);
 	
 	HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
 		
@@ -342,7 +351,7 @@ int main(void)
       {
           if(pS_prev <= ZERO_PS && pS_cur > ZERO_PS)
           {
-              HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
+              //HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
               now_zc = GetTimeUs();
               interval_zc = now_zc - last_zc;
 //              if(log_index < 1000)
@@ -373,17 +382,17 @@ int main(void)
 					LN = (rx_time - last_zc)/20000;
 					latency = rx_time - tx_time;
 
-          if(deltaT > pA_L || deltaT < pA_H)
+          if(deltaT > pA_L && deltaT < pA_H)
           {
             
           }
 
-          if(deltaT > pB_L || deltaT < pB_H)
+          if(deltaT > pB_L && deltaT < pB_H)
           {
             
           }
 
-          if(deltaT > pC_L || deltaT < pC_H)
+          if(deltaT > pC_L && deltaT < pC_H)
           {
             
           }

@@ -89,7 +89,7 @@ DMA_HandleTypeDef hdma_usart2_tx;
 /* USER CODE BEGIN PV */
 
 uint32_t tick = 0;
-uint32_t cnt_timetick = 0;
+volatile uint32_t cnt_timetick = 0;
 
 LoRa vLoRa;
 
@@ -147,7 +147,7 @@ uint16_t pB_prev = 0;
 uint16_t pC_cur = 0;
 uint16_t pC_prev = 0;
 
-uint32_t ovf_tim3 = 0;
+volatile uint32_t ovf_tim3 = 0;
 
 
 
@@ -240,7 +240,16 @@ uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
 }
 
 uint64_t GetTimeUs(){
-  return ovf_tim3 * 65536 + TIM3->CNT;
+  uint32_t ovf1, ovf2;
+  uint32_t cnt;
+
+  do {
+    ovf1 = ovf_tim3;
+    cnt = TIM3->CNT;
+    ovf2 = ovf_tim3;
+  } while (ovf1 != ovf2); // Guard against rollover during reading
+
+  return ((uint64_t)ovf1 << 16) + cnt;
 }
 
 /* USER CODE END 0 */
@@ -303,11 +312,9 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim3);
 
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw_pA, 1);
-	
-  
 
   MA_Filter_t adcFilter_pA;
-  MA_Init(&adcFilter_pA, 2048);
+  MA_Init(&adcFilter_pA, ZERO_PA);
 	
 	HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
 		
@@ -330,7 +337,7 @@ int main(void)
       flag_enable_zc = 1;
     }
 
-    if(flag_cnt_50us >= 2)    // 50us or 100us
+    if(flag_cnt_50us >= 2)    //100us
     {
       flag_cnt_50us = 0;
       adc_filtered_pA = MA_Update(&adcFilter_pA, adc_raw_pA);
@@ -368,7 +375,6 @@ int main(void)
 						
               //trigger_send_lora = 1;
               flag_enable_zc = 0;
-              
               
               interval_zc = now_zc - last_zc;
               last_zc = now_zc;
