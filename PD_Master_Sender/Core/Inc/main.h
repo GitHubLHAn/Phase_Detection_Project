@@ -1,0 +1,90 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.h
+  * @brief          : Header for main.c file.
+  *                   This file contains the common defines of the application.
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __MAIN_H
+#define __MAIN_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Includes ------------------------------------------------------------------*/
+#include "stm32f1xx_hal.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+
+/* USER CODE END Includes */
+
+/* Exported types ------------------------------------------------------------*/
+/* USER CODE BEGIN ET */
+
+/* USER CODE END ET */
+
+/* Exported constants --------------------------------------------------------*/
+/* USER CODE BEGIN EC */
+
+/* USER CODE END EC */
+
+/* Exported macro ------------------------------------------------------------*/
+/* USER CODE BEGIN EM */
+
+/* USER CODE END EM */
+
+/* Exported functions prototypes ---------------------------------------------*/
+void Error_Handler(void);
+
+/* USER CODE BEGIN EFP */
+
+/* USER CODE END EFP */
+
+/* Private defines -----------------------------------------------------------*/
+#define LED_DEBUG_Pin GPIO_PIN_13
+#define LED_DEBUG_GPIO_Port GPIOC
+#define INT_GEN_Pin GPIO_PIN_14
+#define INT_GEN_GPIO_Port GPIOC
+#define NSS_Pin GPIO_PIN_4
+#define NSS_GPIO_Port GPIOA
+#define RF_RESET_Pin GPIO_PIN_0
+#define RF_RESET_GPIO_Port GPIOB
+#define DIO0_Pin GPIO_PIN_1
+#define DIO0_GPIO_Port GPIOB
+#define DIO0_EXTI_IRQn EXTI1_IRQn
+#define GenOut_Pin GPIO_PIN_11
+#define GenOut_GPIO_Port GPIOB
+#define LED_PC_Pin GPIO_PIN_5
+#define LED_PC_GPIO_Port GPIOB
+#define LED_PB_Pin GPIO_PIN_6
+#define LED_PB_GPIO_Port GPIOB
+#define LED_PA_Pin GPIO_PIN_7
+#define LED_PA_GPIO_Port GPIOB
+#define Sender_Pin GPIO_PIN_9
+#define Sender_GPIO_Port GPIOB
+
+/* USER CODE BEGIN Private defines */
+
+/* USER CODE END Private defines */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __MAIN_H */
