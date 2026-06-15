@@ -107,21 +107,19 @@ uint8_t cnt = 0;
 uint16_t sendOK = 0;
 uint16_t recOK = 0;
 
-uint32_t cycle = 50000;
-
-//uint8_t enable_detect_phase = 0;
+uint32_t cycle = 40000;
 		
-uint64_t last_zcA = 0;
-uint64_t now_zcA = 0;
-uint32_t interval_zcA = 0;
+volatile uint32_t last_zcA = 0;
+volatile uint32_t now_zcA = 0;
+volatile uint32_t interval_zcA = 0;
 
-uint64_t last_zcB = 0;
-uint64_t now_zcB = 0;
-uint32_t interval_zcB = 0;
+volatile uint32_t last_zcB = 0;
+volatile uint32_t now_zcB = 0;
+volatile uint32_t interval_zcB = 0;
 
-uint64_t last_zcC = 0;
-uint64_t now_zcC = 0;
-uint32_t interval_zcC = 0;
+volatile uint32_t last_zcC = 0;
+volatile uint32_t now_zcC = 0;
+volatile uint32_t interval_zcC = 0;
 
 uint16_t delta_pB = 0, delta_pC = 0;
 		
@@ -136,23 +134,16 @@ volatile uint8_t trigger_send_lora = 0;
 
 volatile uint16_t adc_raw[3];
 
-uint16_t adc_raw_pA = 0;
-uint16_t adc_filtered_pA = 0;
+volatile uint16_t adc_filtered_pA = 0;
+  volatile uint16_t adc_filtered_pB = 0;
+    volatile uint16_t adc_filtered_pC = 0;
 
-uint16_t adc_raw_pB = 0;
-uint16_t adc_filtered_pB = 0;
-
-uint16_t adc_raw_pC = 0;
-uint16_t adc_filtered_pC = 0;
-
-uint16_t pA_cur = 0;
-uint16_t pA_prev = 0;
-
-uint16_t pB_cur = 0;
-uint16_t pB_prev = 0;
-
-uint16_t pC_cur = 0;
-uint16_t pC_prev = 0;
+volatile uint16_t pA_cur = 0;
+volatile uint16_t pA_prev = 0;
+  volatile uint16_t pB_cur = 0;
+  volatile uint16_t pB_prev = 0;
+    volatile uint16_t pC_cur = 0;
+    volatile uint16_t pC_prev = 0;
 
 volatile uint32_t ovf_tim3 = 0;
 
@@ -168,16 +159,22 @@ uint16_t log_index = 0;
 
 volatile uint8_t flag_get_zero = 0;
 uint16_t offset_ZpA = 0;
-uint16_t offset_ZpB = 0;
-uint16_t offset_ZpC = 0;
+  uint16_t offset_ZpB = 0;
+    uint16_t offset_ZpC = 0;
 
-  MA_Filter_t adcFilter_pA;
-	MA_Filter_t adcFilter_pB;
-	MA_Filter_t adcFilter_pC;
+MA_Filter_t adcFilter_pA;
+  MA_Filter_t adcFilter_pB;
+    MA_Filter_t adcFilter_pC;
 	
-	uint16_t cnt_down_pA = 1;
-		uint16_t cnt_down_pB = 1;
-	uint16_t cnt_down_pC = 1;
+	uint16_t cnt_detect_pA = 1;
+		uint16_t cnt_detect_pB = 1;
+	    uint16_t cnt_detect_pC = 1;
+
+uint32_t last_send = 0;
+uint32_t now_send = 0;
+uint32_t interval_send = 0;
+uint32_t interval_send_mod = 0;
+uint32_t interval_send_div = 0;
 
 
 
@@ -203,11 +200,8 @@ static void MX_TIM3_Init(void);
 uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
 {
     f->sum -= f->buf[f->index];
-
     f->buf[f->index] = sample;
-
     f->sum += sample;
-
     f->index++;
 
     if(f->index >= MA_SIZE)
@@ -216,7 +210,7 @@ uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
     return f->sum / MA_SIZE;
 }
 
-uint64_t GetTimeUs(){
+static inline uint32_t GetTimeUs(){
   uint32_t ovf1, ovf2;
   uint32_t cnt;
 
@@ -226,10 +220,9 @@ uint64_t GetTimeUs(){
     ovf2 = ovf_tim3;
   } while (ovf1 != ovf2); // Guard against rollover during reading
 
-  return ((uint64_t)ovf1 << 16) + cnt;
+  return (ovf1 << 16) + cnt;
 }
 
-volatile uint16_t cnt_filter = 0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM1) //50us
@@ -244,49 +237,51 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			adc_filtered_pB = MA_Update(&adcFilter_pB, adc_raw[1]);
       adc_filtered_pC = MA_Update(&adcFilter_pC, adc_raw[2]);
 
+      // adc_filtered_pA = adc_raw[0];
+			// adc_filtered_pB = adc_raw[1];
+      // adc_filtered_pC = adc_raw[2];
+
       pA_cur = adc_filtered_pA;
 			pB_cur = adc_filtered_pB;
 			pC_cur = adc_filtered_pC;
 
-
+      // catch ZC phase A
       if(pA_cur != 0 && pA_prev != 0 && pA_prev <= ZERO_PA && pA_cur > ZERO_PA)
       {
 				now_zcA = GetTimeUs();
-				ON_LED_PA();
+				cnt_detect_pA = 10000; // 1s
+        delta_pB = (now_zcA - last_zcB);
+				delta_pC = (now_zcA - last_zcC);
 
-				if(flag_enable_zc == 1){
-					HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
-
-					delta_pB = ((now_zcA - last_zcB)%20000);
-					delta_pC = ((now_zcA - last_zcC)%20000);
-
-
-					TX_Lora_buff[0] = 0xAA;
-					TX_Lora_buff[1] = 0;
-					TX_Lora_buff[2] = delta_pB/100;
-					TX_Lora_buff[3] = delta_pC/100;
-					TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
+        while(delta_pB > 20000) delta_pB -= 20000;
+        while(delta_pC > 20000) delta_pC -= 20000;
+      
+				if(flag_enable_zc == 1 && cnt_detect_pB > 0 && cnt_detect_pC > 0){
 					trigger_send_lora = 1;
 					flag_enable_zc = 0;
+          now_send = GetTimeUs();
+          interval_send = now_send - last_send;
+          last_send = now_send;
 				}
 							
 				 interval_zcA = now_zcA - last_zcA;
 				 last_zcA = now_zcA;
       }
 
+      // catch ZC phase B
 			if(pB_cur != 0 && pB_prev != 0 && pB_prev <= ZERO_PB && pB_cur > ZERO_PB)
       {
 				now_zcB = GetTimeUs();
-				ON_LED_PB();
-				interval_zcB = now_zcB - last_zcB;
+        cnt_detect_pB = 10000; // 1s
+        interval_zcB = now_zcB - last_zcB;
         last_zcB = now_zcB;
 			}
 			
+      // catch ZC phase C
 			if(pC_cur != 0 && pC_prev != 0 && pC_prev <= ZERO_PC && pC_cur > ZERO_PC)
       {
 				now_zcC = GetTimeUs();
-				ON_LED_PC();
-
+				cnt_detect_pC = 10000; // 1s
 				interval_zcC = now_zcC - last_zcC;
         last_zcC = now_zcC;
 			}
@@ -296,9 +291,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			pC_prev = pC_cur;
 
     }
+  
+    if(cnt_detect_pA > 0) cnt_detect_pA--;
+    if(cnt_detect_pB > 0) cnt_detect_pB--;
+    if(cnt_detect_pC > 0) cnt_detect_pC--;
   }
-  if(htim->Instance == TIM3)
-  {
+
+  if(htim->Instance == TIM3){
     ovf_tim3++;
   }
 }
@@ -328,8 +327,6 @@ void MA_Init(MA_Filter_t *f, uint16_t init_value)
         f->sum += init_value;
     }
 }
-
-
 
 /* USER CODE END 0 */
 
@@ -370,6 +367,10 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 	HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_RESET);
+
+  ON_LED_PA();
+    ON_LED_PB();
+      ON_LED_PC();
 	
 	Lora_Init(&vLoRa, &hspi1, 808);
 	LoRa_reset(&vLoRa);
@@ -378,7 +379,6 @@ int main(void)
 	
 	while(config_lora!=0x00C8){
 			HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_RESET);
-
 	}
 	HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_SET);	
 
@@ -387,13 +387,14 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
 
+  HAL_ADCEx_Calibration_Start(&hadc1);
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw, 3);
 
 
 
   MA_Init(&adcFilter_pA, ZERO_PA);
 	  MA_Init(&adcFilter_pB, ZERO_PB);
-	  MA_Init(&adcFilter_pC, ZERO_PC);
+	    MA_Init(&adcFilter_pC, ZERO_PC);
 
 	
 	HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
@@ -422,8 +423,6 @@ int main(void)
       flag_enable_zc = 1;
     }
 
-    
-		
 		if(flag_get_zero){
 			flag_get_zero = 0;
 			
@@ -439,9 +438,58 @@ int main(void)
 			offset_ZpA = sumA/1000;
 				offset_ZpB = sumB/1000;
 					offset_ZpC = sumC/1000;
-
 		}
+
+				// code mach sender
+    if(trigger_send_lora == 1)
+    {							
+      HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
+
+      TX_Lora_buff[0] = 0xAA;
+      TX_Lora_buff[1] = 0;
+      TX_Lora_buff[2] = delta_pB/100;
+      TX_Lora_buff[3] = delta_pC/100;
+      TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
+
+			send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
+			HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
+
+      interval_send_mod = interval_send % 20000;
+      interval_send_div = interval_send / 20000;
+			
+			if(send_ok == 1){
+				 HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
+					sendOK++;
+			}
+			trigger_send_lora = 0;
+    }
+
+
+    if(cnt_detect_pA > 0){
+      ON_LED_PA();
+    }
+    else{
+      OFF_LED_PA();
+    }
+    if(cnt_detect_pB > 0){
+      ON_LED_PB();
+    }
+    else{
+      OFF_LED_PB();
+    }
+    if(cnt_detect_pC > 0){
+      ON_LED_PC();
+    }
+    else{
+      OFF_LED_PC();
+    }
 		
+
+
+
+
+
+    		
 		
 		
 		
@@ -471,23 +519,6 @@ int main(void)
 //					recOK++;
 //				}
 //			}
-		
-		
-				// code mach sender
-    if(trigger_send_lora == 1)
-    {										
-			send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
-			HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
-
-			
-			if(send_ok == 1){
-				 HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
-					sendOK++;
-			}
-			trigger_send_lora = 0;
-    }
-
-		
   }
   /* USER CODE END 3 */
 }

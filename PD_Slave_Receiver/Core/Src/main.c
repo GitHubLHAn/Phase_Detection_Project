@@ -120,8 +120,8 @@ uint16_t config_lora = 0xFA;
 		
 		
 				
-		uint64_t last_zc = 0;
-		uint64_t now_zc = 0;
+		uint32_t last_zc = 0;
+		uint32_t now_zc = 0;
 		uint32_t interval_zc = 0;
 		
 
@@ -135,8 +135,6 @@ uint16_t pS_prev = 0;
 
 volatile uint32_t ovf_tim3 = 0;
 
-
-
 uint8_t flag_tx_log = 0;
 
 char uart_tx_log[100];
@@ -148,8 +146,8 @@ uint16_t log_index = 0;
 
 volatile uint8_t flag_cnt_50us = 0;
 
-uint64_t tx_time = 0;
-uint64_t rx_time = 0;
+uint32_t tx_time = 0;
+uint32_t rx_time = 0;
 uint32_t deltaT = 0;
 uint32_t LN = 0;
 
@@ -192,11 +190,8 @@ void MA_Init(MA_Filter_t *f, uint16_t init_value)
 uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
 {
     f->sum -= f->buf[f->index];
-
     f->buf[f->index] = sample;
-
     f->sum += sample;
-
     f->index++;
 
     if(f->index >= MA_SIZE)
@@ -205,7 +200,7 @@ uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
     return f->sum / MA_SIZE;
 }
 
-uint64_t GetTimeUs(){
+static inline uint32_t GetTimeUs(){
   uint32_t ovf1, ovf2;
   uint32_t cnt;
 
@@ -215,7 +210,7 @@ uint64_t GetTimeUs(){
     ovf2 = ovf_tim3;
   } while (ovf1 != ovf2); // Guard against rollover during reading
 
-  return ((uint64_t)ovf1 << 16) + cnt;
+  return (ovf1 << 16) + cnt;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -224,7 +219,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
     cnt_timetick++;
 		flag_cnt_50us++;
-		 if(flag_cnt_50us >= 2)    // 50us or 100us
+
+		if(flag_cnt_50us >= 2)    // 50us or 100us
     {
       flag_cnt_50us = 0;
       //flag_tx_log = 1;
@@ -262,7 +258,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		if(GPIO_Pin == vLoRa.DIO0_pin)
 		{
 			num_RX_irq_LoRa++;
-			flag_Lora_Rx = 1;	 
+			flag_Lora_Rx = 1;	
+      rx_time = GetTimeUs(); 
 		}
 //		if(GPIO_Pin == GPIO_PIN_10)
 //		{
@@ -270,10 +267,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 //		}
 	
 	}
-
-
-
-
 
 
 /* USER CODE END PFP */
@@ -322,8 +315,8 @@ int main(void)
 	
 	 HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_RESET);
 	 ON_LED_PA();
-	 ON_LED_PB();
-	 ON_LED_PC();
+	  ON_LED_PB();
+	    ON_LED_PC();
 
 	
 	Lora_Init(&vLoRa, &hspi1, 808);
@@ -342,6 +335,7 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
 
+  HAL_ADCEx_Calibration_Start(&hadc1);
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw_pS, 1);
 	
   MA_Init(&adcFilter_pS, ZERO_PS);
@@ -349,11 +343,10 @@ int main(void)
 	HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
 		
 	
-	
 	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
-	 OFF_LED_PA();
-	 OFF_LED_PB();
-	 OFF_LED_PC();
+	OFF_LED_PA();
+	  OFF_LED_PB();
+	    OFF_LED_PC();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -385,7 +378,7 @@ int main(void)
       if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4])
       {
           HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
-          rx_time = GetTimeUs();
+          //rx_time = GetTimeUs();
           deltaT = (rx_time - last_zc)%20000;
 					LN = (rx_time - last_zc)/20000;
 					latency = rx_time - tx_time;
@@ -398,7 +391,7 @@ int main(void)
           {
             ON_LED_PA();
 						OFF_LED_PB();
-						OFF_LED_PB();
+						OFF_LED_PC();
           }
           else if(deltaT > 8000 && deltaT < 12000)
           {
