@@ -85,20 +85,6 @@ typedef enum
   MODE_FLASH_2 = 6,
 }MODE_LED_e;
 
-typedef struct {
-    uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
-    MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
-    uint16_t zero_cross_val;     // Giá trị ZERO_PX
-    uint16_t p_cur;
-    uint16_t p_prev;
-    uint16_t cnt_detect;
-    uint32_t last_zc;
-    uint32_t now_zc;
-    uint32_t interval_zc;
-    bool zc_ok;
-    bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
-} Phase_Data_t;
-
 
 /* USER CODE END PD */
 
@@ -161,14 +147,39 @@ uint16_t cnt_sendOK = 0;
 uint16_t cnt_recOK = 0;
 
 // Phase variables	
-Phase_Data_t phaseA, phaseB, phaseC;
+volatile uint64_t last_zcA = 0;
+volatile uint64_t now_zcA = 0;
+volatile uint32_t interval_zcA = 0;
 
-volatile uint16_t delta_pAB = 0, delta_pAC = 0;
+volatile uint64_t last_zcB = 0;
+volatile uint64_t now_zcB = 0;
+volatile uint32_t interval_zcB = 0;
+
+volatile uint64_t last_zcC = 0;
+volatile uint64_t now_zcC = 0;
+volatile uint32_t interval_zcC = 0;
+
+volatile uint16_t delta_pB = 0, delta_pC = 0;
 		
 // ADC measurement variables
 volatile uint16_t adc_raw[3];
 
-// For calib ADC at zeropoint
+volatile uint16_t adc_filtered_pA = 0;
+volatile uint16_t adc_filtered_pB = 0;
+volatile uint16_t adc_filtered_pC = 0;
+
+volatile uint16_t pA_cur = 0;    // phase A current value
+volatile uint16_t pA_prev = 0;   // phase A previous value
+volatile uint16_t pB_cur = 0;    // phase B current value
+volatile uint16_t pB_prev = 0;   // phase B previous value
+volatile uint16_t pC_cur = 0;    // phase C current value
+volatile uint16_t pC_prev = 0;   // phase C previous value
+
+// For ADC offset calibration
+MA_Filter_t adcFilter_pA;
+MA_Filter_t adcFilter_pB;
+MA_Filter_t adcFilter_pC;
+
 uint8_t flag_get_zero = 0;
 uint16_t offset_pA = 0;
 uint16_t offset_pB = 0;
@@ -216,7 +227,7 @@ void Handle_LED(void);
 void MA_Init(MA_Filter_t *f, uint16_t init_value);
 uint16_t MA_Update(MA_Filter_t *f, uint16_t sample);
 
-uint32_t GetTimeUs(){
+uint64_t GetTimeUs(){
   uint32_t ovf1, ovf2;
   uint32_t cnt;
 
@@ -226,52 +237,7 @@ uint32_t GetTimeUs(){
     ovf2 = ovf_tim3;
   } while (ovf1 != ovf2); // Guard against rollover during reading
 
-  return ((uint32_t)ovf1 << 16) + cnt;
-}
-
-void Phase_init(Phase_Data_t* p_data, uint16_t* adc_raw_ptr, uint16_t zero_cross_val){
-    p_data->adc_raw_ptr = adc_raw_ptr;
-    p_data->zero_cross_val = zero_cross_val;
-    p_data->p_cur = 0;
-    p_data->p_prev = 0;
-    p_data->cnt_detect = 0;
-    p_data->last_zc = 0;
-    p_data->now_zc = 0;
-    p_data->interval_zc = 0;
-    p_data->zc_ok = false;
-    p_data->has_new_edge = false;
-
-    MA_Init(&p_data->filter, 0);
-}
-
-static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time) 
-{
-    phase->p_cur = MA_Update(phase->filter, *(phase->adc_raw_ptr));
-
-    // Phát hiện cạnh lên qua điểm Zero Cross
-    if (phase->p_cur != 0 && phase->p_prev != 0 && phase->p_prev <= phase->zero_cross_val && phase->p_cur > phase->zero_cross_val) 
-    {
-        phase->now_zc = now_time;
-        phase->interval_zc = (uint32_t)(phase->now_zc - phase->last_zc);
-
-        if (phase->interval_zc > RANGE_GRID_L && phase->interval_zc < RANGE_GRID_H) {
-            if (phase->cnt_detect < TIME_PHASE_DETECT) phase->cnt_detect++;
-            else phase->zc_ok = true;
-        } else {
-            phase->zc_ok = false;
-            if (phase->cnt_detect > 0) phase->cnt_detect--;
-        }
-
-        phase->has_new_edge = true; // Đánh dấu có cạnh mới
-        phase->last_zc = phase->now_zc;
-    } 
-    else 
-    {
-        phase->zc_ok = false;
-        if (phase->cnt_detect >= 2) phase->cnt_detect -= 2;
-        else phase->cnt_detect = 0;
-    }
-    phase->p_prev = phase->p_cur;
+  return ((uint64_t)ovf1 << 16) + cnt;
 }
 
 
@@ -284,35 +250,90 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		
 		if(++flag_cnt_50us >= 2)    //100us
     {
-      uint32_t now_time = GetTimeUs();
+      uint64_t now_time = GetTimeUs();
       flag_cnt_50us = 0;
+      adc_filtered_pA = MA_Update(&adcFilter_pA, adc_raw[0]);
+			adc_filtered_pB = MA_Update(&adcFilter_pB, adc_raw[1]);
+      adc_filtered_pC = MA_Update(&adcFilter_pC, adc_raw[2]);
 
-      Process_Phase_ZC((Phase_Data_t*)&phaseA, now_time);
-      Process_Phase_ZC((Phase_Data_t*)&phaseB, now_time);
-      Process_Phase_ZC((Phase_Data_t*)&phaseC, now_time);
+      pA_cur = adc_filtered_pA;
+			pB_cur = adc_filtered_pB;
+			pC_cur = adc_filtered_pC;
 
-      // Nếu Pha A có cạnh lên và đang đợi kiểm tra đồng bộ ZC
-      if (phaseA.has_new_edge) 
+      // Process phase A zero crossing detection
+      if(pA_cur != 0 && pA_prev != 0 && pA_prev <= ZERO_PA && pA_cur > ZERO_PA)
       {
-        phaseA.has_new_edge = false; // Xóa cờ ngay
-        if (flag_enable_zc) 
-        {
-          flag_enable_zc = false;
-          if (phaseA.zc_ok) 
-          {
-            delta_pAB = 1;
-            delta_pAC = 2;
-            if(phaseB.zc_ok && phaseC.zc_ok)
-            {
-              delta_pAB = phaseA.now_zc - phaseB.last_zc;
-              delta_pAC = phaseA.now_zc - phaseC.last_zc;
-            }
+				now_zcA = now_time;
+        interval_zcA = now_zcA - last_zcA;
+
+        if(interval_zcA > RANGE_GRID_L && interval_zcA < RANGE_GRID_H){
+          if(cnt_detect_PA < TIME_PHASE_DETECT) cnt_detect_PA++;
+          else zcA_ok = true;
+        }else{
+          zcA_ok = false;
+          if(cnt_detect_PA > 0) cnt_detect_PA--;
+        }
+
+        // Send Command
+				if(flag_enable_zc){
+          if(zcA_ok == true && zcB_ok == true && zcC_ok == true){
+            delta_pB = ((now_zcA - last_zcB)%CYCLE_GRID);
+            delta_pC = ((now_zcA - last_zcC)%CYCLE_GRID);
+
             flag_send_lora = true;
           }
-        }
+					flag_enable_zc = false;
+				}
+ 
+        last_zcA = now_zcA;
+      }else{
+        zcA_ok = false;
+        if(cnt_detect_PA > 0) cnt_detect_PA-=2;
       }
-      phaseB.has_new_edge = false;
-      phaseC.has_new_edge = false;
+
+      // Process phase B zero crossing detection
+			if(pB_cur != 0 && pB_prev != 0 && pB_prev <= ZERO_PB && pB_cur > ZERO_PB)
+      {
+				now_zcB = now_time;
+				interval_zcB = now_zcB - last_zcB;
+
+        if(interval_zcB > RANGE_GRID_L && interval_zcB < RANGE_GRID_H){
+          if(cnt_detect_PB < TIME_PHASE_DETECT) cnt_detect_PB++;
+          else zcB_ok = true;
+        }else{
+          zcB_ok = false;
+          if(cnt_detect_PB > 0) cnt_detect_PB--;
+        }
+
+        last_zcB = now_zcB;
+			}else{
+        zcB_ok = false;
+        if(cnt_detect_PB > 0) cnt_detect_PB-=2;
+      }
+			
+      // Process phase C zero crossing detection
+			if(pC_cur != 0 && pC_prev != 0 && pC_prev <= ZERO_PC && pC_cur > ZERO_PC)
+      {
+				now_zcC = now_time;
+				interval_zcC = now_zcC - last_zcC;
+
+        if(interval_zcC > RANGE_GRID_L && interval_zcC < RANGE_GRID_H){
+          if(cnt_detect_PC < TIME_PHASE_DETECT) cnt_detect_PC++;
+          else zcC_ok = true;
+        }else{
+          zcC_ok = false;
+          if(cnt_detect_PC > 0) cnt_detect_PC--;
+        }
+
+        last_zcC = now_zcC;
+			}else{
+        zcC_ok = false;
+        if(cnt_detect_PC > 0) cnt_detect_PC-=2;
+      }
+			
+			pA_prev = pA_cur;
+			pB_prev = pB_cur;
+			pC_prev = pC_cur;
     }
   }
 
@@ -335,6 +356,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 //		}
 	
 	}
+
+
+
+
 
 
 /* USER CODE END 0 */
@@ -394,9 +419,9 @@ int main(void)
   OFF_LED_DEBUG();
   OFF_LED_STATUS();
 
-  Phase_init(&phaseA, &adc_raw[0], ZERO_PA);
-  Phase_init(&phaseB, &adc_raw[1], ZERO_PB);
-  Phase_init(&phaseC, &adc_raw[2], ZERO_PC);
+	MA_Init(&adcFilter_pA, ZERO_PA);
+  MA_Init(&adcFilter_pB, ZERO_PB);
+  MA_Init(&adcFilter_pC, ZERO_PC);
 
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
@@ -419,7 +444,7 @@ int main(void)
 		tick++;
 		
     // Set Flag send command to LoRa module
-		if(cnt_send_cmd >= cycle_send && phaseA.zc_ok){
+		if(cnt_send_cmd >= cycle_send){
 			cnt_send_cmd = 0;
 			HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
       flag_enable_zc = true;
@@ -430,8 +455,8 @@ int main(void)
     {					
       TX_Lora_buff[0] = 0xAA;
       TX_Lora_buff[1] = 0;
-      TX_Lora_buff[2] = (delta_pAB%CYCLE_GRID)/100;
-      TX_Lora_buff[3] = (delta_pAC%CYCLE_GRID)/100;
+      TX_Lora_buff[2] = delta_pB/100;
+      TX_Lora_buff[3] = delta_pC/100;
       TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
 										
 			send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
@@ -929,13 +954,13 @@ void ON_LED_STATUS_2(void)
 
 void Handle_LED(void)
 {
-  if(phaseA.cnt_detect >= TIME_PHASE_DETECT) ON_LED_PA();
-  if(phaseB.cnt_detect >= TIME_PHASE_DETECT) ON_LED_PB();
-  if(phaseC.cnt_detect >= TIME_PHASE_DETECT) ON_LED_PC();
+  if(cnt_detect_PA >= TIME_PHASE_DETECT) ON_LED_PA();
+  if(cnt_detect_PB >= TIME_PHASE_DETECT) ON_LED_PB();
+  if(cnt_detect_PC >= TIME_PHASE_DETECT) ON_LED_PC();
 
-  if(phaseA.cnt_detect == 0) OFF_LED_PA();
-  if(phaseB.cnt_detect == 0) OFF_LED_PB();
-  if(phaseC.cnt_detect == 0) OFF_LED_PC();
+  if(cnt_detect_PA == 0) OFF_LED_PA();
+  if(cnt_detect_PB == 0) OFF_LED_PB();
+  if(cnt_detect_PC == 0) OFF_LED_PC();
 
   switch(mode_led_status)
   {
