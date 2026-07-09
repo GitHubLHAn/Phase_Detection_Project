@@ -26,6 +26,7 @@
 #include <string.h>
 
 #include <stdio.h>
+#include <stdbool.h>
 
 /* USER CODE END Includes */
 
@@ -37,8 +38,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
-#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
 #define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
 
 #define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
@@ -51,8 +52,8 @@
 #define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
 
 // Buzzer passive
-#define BUZZER_H()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
-#define BUZZER_L()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
+#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
+#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
 
 
 
@@ -99,17 +100,17 @@ typedef enum
 }MODE_BUZZER_e;
 
 typedef struct {
-    uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
+    volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
     MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
     uint16_t zero_val;     // Giá trị ZERO_PX
-    uint16_t p_cur;
-    uint16_t p_prev;
-    uint16_t cnt_detect;
-    uint32_t last_zc;
-    uint32_t now_zc;
-    uint32_t interval_zc;
-    bool zc_ok;
-    bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
+    volatile uint16_t p_cur;
+    volatile uint16_t p_prev;
+    volatile uint16_t cnt_detect;
+    volatile uint32_t last_zc;
+    volatile uint32_t now_zc;
+    volatile uint32_t interval_zc;
+    volatile bool zc_ok;
+    volatile bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
 } Phase_Data_t;
 
 /* USER CODE END PD */
@@ -151,7 +152,6 @@ volatile uint16_t cnt_handle_led = 0;
 //BUZZER PASSIVE
 volatile MODE_BUZZER_e mode_buzzer_status = BUZZER_OFF;
 volatile uint16_t cnt_handle_buzzer = 0;
-volatile uint32_t cnt_buzzer_pip_time = 0;
 
 //LoRa variables
 LoRa vLoRa;
@@ -236,7 +236,7 @@ uint32_t GetTimeUs(){
   return ((uint32_t)ovf1 << 16) + cnt;
 }
 
-void Phase_init(Phase_Data_t* p_data, uint16_t* adc_raw_ptr, uint16_t zero_val){
+void Phase_init(Phase_Data_t* p_data, volatile  uint16_t* adc_raw_ptr, uint16_t zero_val){
     p_data->adc_raw_ptr = adc_raw_ptr;
     p_data->zero_val = zero_val;
     p_data->p_cur = 0;
@@ -293,9 +293,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
                     phase->zc_ok = true;
                     mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
                   }
-                }
-
-                
+                }  
             }
         }
     }
@@ -311,12 +309,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     cnt_handle_led++;
     cnt_handle_buzzer++;
 
-    // Increment pip counter when in pip mode (for 1 second duration)
-    if(mode_buzzer_status == BUZZER_TRIGGER_PIP)
-    {
-      cnt_buzzer_pip_time++;
-    }
-		
 		if(++flag_cnt_50us >= 2)    //100us
     {
       uint32_t now_time = GetTimeUs();
@@ -412,9 +404,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
   ON_LED_DEBUG();
   ON_LED_STATUS_1();
+	
+	ON_LED_PA();
+  ON_LED_PB();
+  ON_LED_PC();
 
-  
-  
 	Lora_Init(&vLoRa, &hspi1, 912);
 	LoRa_reset(&vLoRa);
 	config_lora = LoRa_Config(&vLoRa);
@@ -444,6 +438,7 @@ int main(void)
   OFF_LED_PA();
   OFF_LED_PB();
   OFF_LED_PC();
+	HAL_Delay(100);
 
   /* USER CODE END 2 */
 
@@ -480,6 +475,7 @@ int main(void)
 				HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
 				cnt_sendOK++;
         mode_led_status = MODE_SET_FLASH_1;
+				mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
 			}
     }
 
@@ -930,7 +926,7 @@ static void MX_GPIO_Init(void)
 void Get_Offset(void)
 {  
   if(flag_get_zero == 0) return;
-  flag_get_zero = 0;
+  
 
   uint32_t sumA = 0;
   uint32_t sumB = 0;
@@ -947,24 +943,25 @@ void Get_Offset(void)
   offset_pA = sumA / 1000;
   offset_pB = sumB / 1000;
   offset_pC = sumC / 1000;
+	flag_get_zero = 0;
 }
 
 void OFF_LED_STATUS(void)
 {
-  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_RESET);
 }
 
 void ON_LED_STATUS_1(void)
 {
-  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_RESET);
 }
 
 void ON_LED_STATUS_2(void)
 {
-  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_SET);
 }
 
 void Handle_LED(void)
@@ -1020,34 +1017,20 @@ void Handle_Buzzer(void)
   switch(mode_buzzer_status)
   {
     case BUZZER_OFF:
-      BUZZER_L();
-      cnt_handle_buzzer = 0;
-      cnt_buzzer_pip_time = 0;
+      BUZZER_OFF();
       break;
     case BUZZER_ON:
-      // Toggle xung buzzer: 1kHz (500us high + 500us low)
-      // TIM1 callback 50us/lần, nên toggle mỗi 10 lần (500us)
-      if(cnt_handle_buzzer >= 10)
-      {
-        cnt_handle_buzzer = 0;
-        HAL_GPIO_TogglePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin);
-      }
+			BUZZER_ON();
       break;
     case BUZZER_SET_TRIGGER_PIP:
       // Initialize pip mode
       cnt_handle_buzzer = 0;
-      cnt_buzzer_pip_time = 0;
+			BUZZER_ON();
       mode_buzzer_status = BUZZER_TRIGGER_PIP;
       break;
     case BUZZER_TRIGGER_PIP:
-      // Toggle xung buzzer: 1kHz
-      if(cnt_handle_buzzer >= 10)
-      {
-        cnt_handle_buzzer = 0;
-        HAL_GPIO_TogglePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin);
-      }
       // Check if 1 second has passed (1000000us / 50us = 20000 callbacks)
-      if(cnt_buzzer_pip_time >= 20000)
+      if(cnt_handle_buzzer >= 5000)
       {
         mode_buzzer_status = BUZZER_OFF;
       }

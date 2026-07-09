@@ -37,29 +37,34 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
-#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
-#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_RESET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_SET)
+
+//#define ON_LED1( )	HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET)
+//#define OFF_LED1( )	HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET)
 
 #define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
 #define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
 
+
 #define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
 #define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
+
 
 #define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
 #define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
 
+
+
+
 #define MA_SIZE 5
 
-#define ZERO_PS 1971
-
-#define CYCLE_GRID 20000
-
-#define RANGE_GRID_L 19500
-#define RANGE_GRID_H 20500
-
-#define TIME_PHASE_DETECT 10000   // 1s
+typedef struct
+{
+    uint16_t buf[MA_SIZE];
+    uint32_t sum;
+    uint8_t index;
+} MA_Filter_t;
 
 #define pA_L   6000
 #define pA_H   8000
@@ -70,42 +75,7 @@
 #define pC_L   1367
 #define pC_H   1567
 
-
-typedef struct
-{
-    uint16_t buf[MA_SIZE];
-    uint32_t sum;
-    uint8_t index;
-} MA_Filter_t;
-
-typedef enum
-{
-  MODE_OFF = 0,
-  MODE_STS_1 = 1,
-  MODE_STS_2 = 2,
-
-  MODE_SET_FLASH_1 = 3,
-  MODE_FLASH_1 = 4,
-
-  MODE_SET_FLASH_2 = 5,
-  MODE_FLASH_2 = 6,
-}MODE_LED_e;
-
-typedef struct {
-    uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
-    MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
-    uint16_t zero_val;     // Giá trị ZERO_PX
-    uint16_t p_cur;
-    uint16_t p_prev;
-    uint16_t cnt_detect;
-    uint32_t last_zc;
-    uint32_t now_zc;
-    uint32_t interval_zc;
-    bool zc_ok;
-    bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
-} Phase_Data_t;
-
-
+#define ZERO_PS 2035
 
 
 /* USER CODE END PD */
@@ -117,64 +87,87 @@ typedef struct {
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-ADC_HandleTypeDef hadc2;
 DMA_HandleTypeDef hdma_adc1;
 
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim1;
-TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
-uint32_t tick_slave = 0;
+uint32_t tick = 0;
+volatile uint32_t cnt_timetick = 0;
 
 uint32_t cycle = 20000;
 
-volatile uint32_t ovf_tim3 = 0;
-volatile uint8_t flag_cnt_50us = 0;
-
-//LoRa variables
 LoRa vLoRa;
-uint16_t config_lora = 0xFA;
 
 uint8_t TX_Lora_buff[12];
 uint8_t RX_LoRa_buff[12];
 
+
 uint8_t send_ok = 0;
-uint16_t cnt_recOK = 0;
-volatile uint16_t num_RX_irq_LoRa = 0;
-volatile bool flag_Lora_Rx = false;
+uint16_t num_RX_irq_LoRa = 0;
+uint8_t flag_Lora_Rx = 0;
 
-// Phase variables	
-Phase_Data_t phaseS;
+uint16_t config_lora = 0xFA;
 
 
-// For logging
+		uint16_t recOK = 0;
+		
+		
+				
+		uint32_t last_zc = 0;
+		uint32_t now_zc = 0;
+		uint32_t interval_zc = 0;
+		
+
+uint16_t adc_raw_pS = 0;
+uint16_t adc_filtered_pS = 0;
+
+
+uint16_t pS_cur = 0;
+uint16_t pS_prev = 0;
+
+
+volatile uint32_t ovf_tim3 = 0;
+
 uint8_t flag_tx_log = 0;
+
 char uart_tx_log[100];
+
 uint32_t stt = 0;
 
+uint16_t log_buff[1000];
+uint16_t log_index = 0;
 
+volatile uint8_t flag_cnt_50us = 0;
 
-// For calib ADC at zeropoint
-uint8_t flag_get_zero = 0;
-uint16_t offset_pS = 0;
-
-// Debug variables
-uint16_t delta_pA = 0;
-uint16_t delta_pB = 0;
-uint16_t delta_pC = 0;
-
-uint64_t tx_time = 0;
-uint64_t rx_time = 0;
-uint32_t deltaT = 0;
+uint32_t tx_time = 0;
+uint32_t rx_time = 0;
+uint32_t deltaT = 0, deltaT_raw = 0;
 uint32_t LN = 0;
+uint32_t point_pA = 0;
+uint32_t point_pB = 0;
+uint32_t point_pC = 0;
+
 
 uint32_t latency = 0;
+
+volatile uint8_t flag_get_zero = 0;
+uint16_t offset_ZpS = 0;
+
+uint16_t delta_pA = 0;
+	uint16_t delta_pB = 0;
+		uint16_t delta_pC = 0;
+		
+		  MA_Filter_t adcFilter_pS;
+
+volatile uint16_t cnt_detect_phase = 0;
+
 					
 /* USER CODE END PV */
 
@@ -187,18 +180,33 @@ static void MX_USART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_ADC2_Init(void);
-static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+void MA_Init(MA_Filter_t *f, uint16_t init_value)
+{
+    f->sum = 0;
+    f->index = 0;
 
-void Get_Offset(void);
-void OFF_LED_STATUS(void);
-void ON_LED_STATUS_1(void);
-void ON_LED_STATUS_2(void);
-void MA_Init(MA_Filter_t *f, uint16_t init_value);
-uint16_t MA_Update(MA_Filter_t *f, uint16_t sample);
+    for(int i=0; i<MA_SIZE; i++)
+    {
+        f->buf[i] = init_value;
+        f->sum += init_value;
+    }
+}
 
-uint32_t GetTimeUs(){
+uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
+{
+    f->sum -= f->buf[f->index];
+    f->buf[f->index] = sample;
+    f->sum += sample;
+    f->index++;
+
+    if(f->index >= MA_SIZE)
+        f->index = 0;
+
+    return f->sum / MA_SIZE;
+}
+
+static inline uint32_t GetTimeUs(){
   uint32_t ovf1, ovf2;
   uint32_t cnt;
 
@@ -208,70 +216,7 @@ uint32_t GetTimeUs(){
     ovf2 = ovf_tim3;
   } while (ovf1 != ovf2); // Guard against rollover during reading
 
-  return ((uint32_t)ovf1 << 16) + cnt;
-}
-
-void Phase_init(Phase_Data_t* p_data, uint16_t* adc_raw_ptr, uint16_t zero_val){
-    p_data->adc_raw_ptr = adc_raw_ptr;
-    p_data->zero_val = zero_val;
-    p_data->p_cur = 0;
-    p_data->p_prev = 0;
-    p_data->cnt_detect = 0;
-    p_data->last_zc = 0;
-    p_data->now_zc = 0;
-    p_data->interval_zc = 0;
-    p_data->zc_ok = false;
-    p_data->has_new_edge = false;
-
-    MA_Init(&p_data->filter, 0);
-}
-
-static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
-{
-    phase->p_cur = MA_Update(&phase->filter, *(phase->adc_raw_ptr));
-
-    uint32_t itv_lZC = now_time - phase->last_zc;
-    
-
-    /* Detect loss grid */
-    if ((itv_lZC > 100000) && (phase->last_zc != 0))
-    {
-        phase->zc_ok       = false;
-        phase->cnt_detect  = 0;
-        phase->last_zc     = 0;
-    }
-
-    /* Rising Zero-Cross */
-    if ((phase->p_prev <= phase->zero_val) &&(phase->p_cur  >  phase->zero_val))
-    {
-        while(itv_lZC > RANGE_GRID_H){
-          itv_lZC -= CYCLE_GRID;
-        }
-
-        /* First edge after startup or loss-grid */
-        if (phase->last_zc == 0U)
-        {
-            phase->last_zc = now_time;
-        }
-        else
-        {
-            if ((itv_lZC >= RANGE_GRID_L) && (itv_lZC <= RANGE_GRID_H))
-            {
-                phase->now_zc       = now_time;
-                phase->interval_zc  = itv_lZC;
-                phase->has_new_edge = true;
-
-                phase->last_zc = now_time;
-
-                if (phase->cnt_detect < TIME_PHASE_DETECT){
-                  if (++phase->cnt_detect == TIME_PHASE_DETECT){
-                    phase->zc_ok = true;
-                  }
-                }
-            }
-        }
-    }
-    phase->p_prev = phase->p_cur;
+  return (ovf1 << 16) + cnt;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -280,7 +225,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
     cnt_timetick++;
 		flag_cnt_50us++;
-		 if(flag_cnt_50us >= 2)    // 50us or 100us
+		if (cnt_detect_phase > 0) cnt_detect_phase-=2;
+
+
+		if(flag_cnt_50us >= 2)    // 50us or 100us
     {
       flag_cnt_50us = 0;
       //flag_tx_log = 1;
@@ -288,16 +236,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
       pS_cur = adc_filtered_pS;
 
-      if(pS_cur != 0 && pS_prev != 0)
+      if(pS_cur != 0 && pS_prev != 0 && pS_prev <= ZERO_PS && pS_cur > ZERO_PS)
       {
-          if(pS_prev <= ZERO_PS && pS_cur > ZERO_PS)
-          {
-              //HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
-              now_zc = GetTimeUs();
-              interval_zc = now_zc - last_zc;
-              last_zc = now_zc;
-							//flag_tx_log = 1;
-          }
+				
+					//HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_SET);
+					now_zc = GetTimeUs();
+					interval_zc = now_zc - last_zc;
+				if(interval_zc >19000 && interval_zc <21000){
+					cnt_detect_phase = 20000;
+				}
+					last_zc = now_zc;
+					//flag_tx_log = 1;
       }
 
       pS_prev = pS_cur;
@@ -318,7 +267,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		if(GPIO_Pin == vLoRa.DIO0_pin)
 		{
 			num_RX_irq_LoRa++;
-			flag_Lora_Rx = 1;	 
+			flag_Lora_Rx = 1;	
+      rx_time = GetTimeUs(); 
 		}
 //		if(GPIO_Pin == GPIO_PIN_10)
 //		{
@@ -326,10 +276,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 //		}
 	
 	}
-
-
-
-
 
 
 /* USER CODE END PFP */
@@ -374,40 +320,42 @@ int main(void)
   MX_ADC1_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
-  MX_ADC2_Init();
-  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 	
-	 HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET);
+	 HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_RESET);
 	 ON_LED_PA();
-	 ON_LED_PB();
-	 ON_LED_PC();
+	  ON_LED_PB();
+	    ON_LED_PC();
 
 	
-	Lora_Init(&vLoRa, &hspi1, 912);
+	Lora_Init(&vLoRa, &hspi1, 808);
 	LoRa_reset(&vLoRa);
 		
 	config_lora = LoRa_Config(&vLoRa);
 	
 	while(config_lora!=0x00C8){
-			HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_RESET);
 
 	}
-	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET);	
+	HAL_GPIO_WritePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin, GPIO_PIN_SET);	
 
 	LoRa_startReceiving(&vLoRa);
 
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
 
+  HAL_ADCEx_Calibration_Start(&hadc1);
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw_pS, 1);
 	
   MA_Init(&adcFilter_pS, ZERO_PS);
-			
 	
-		OFF_LED_PA();
-			OFF_LED_PB();
-				OFF_LED_PC();
+	HAL_GPIO_WritePin(GenOut_GPIO_Port, GenOut_Pin, GPIO_PIN_RESET);
+		
+	
+	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
+	OFF_LED_PA();
+	  OFF_LED_PB();
+	    OFF_LED_PC();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -418,7 +366,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 		
-		tick_slave++;
+			tick++;
 		
 		if(cnt_timetick >= cycle)
     {
@@ -436,27 +384,42 @@ int main(void)
 
       uint8_t checksum = RX_LoRa_buff[0] + RX_LoRa_buff[1] + RX_LoRa_buff[2] + RX_LoRa_buff[3];
 
-      if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4])
+      if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4] && cnt_detect_phase > 0)
       {
-          HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
-          rx_time = GetTimeUs();
-          deltaT = (rx_time - last_zc)%20000;
-					LN = (rx_time - last_zc)/20000;
+          HAL_GPIO_TogglePin(LED_DEBUG_GPIO_Port, LED_DEBUG_Pin);
+          //rx_time = GetTimeUs();
+          deltaT = (rx_time - last_zc)%interval_zc;
+					LN = (rx_time - last_zc)/interval_zc;
 					latency = rx_time - tx_time;
 			 	
 					delta_pA = RX_LoRa_buff[1]*100;
 					delta_pB = RX_LoRa_buff[2]*100;
 					delta_pC = RX_LoRa_buff[3]*100;
 
-          if((deltaT > 0 && deltaT < 6000) || (deltaT > 19500 && deltaT < 20000))
+          if(deltaT > 0 && deltaT <= 6667)
           {
-            ON_LED_PA();
-						OFF_LED_PB();
-						OFF_LED_PB();
+            point_pA++;
           }
-          else if(deltaT > 8000 && deltaT < 12000)
-          {
-						if(delta_pC > delta_pB){
+					if(deltaT >6667 && deltaT <= 13333){
+						point_pC++;
+					}
+					if(deltaT > 13333){
+						point_pB++;
+					}
+					
+					uint8_t phase = 1;
+					if(point_pB > point_pA) phase = 2;
+					else if(point_pB == point_pA) phase = 0;
+					
+					if(point_pC > point_pB) phase = 3;
+
+					if(phase == 1){
+						ON_LED_PA();
+						OFF_LED_PB();
+						OFF_LED_PC();
+					}
+					else if(phase == 2){
+						if(delta_pB > delta_pC){
 							OFF_LED_PA();
 							ON_LED_PB();
 							OFF_LED_PC();
@@ -466,11 +429,9 @@ int main(void)
 							OFF_LED_PB();
 							ON_LED_PC();
 						}
-            
-          }
-          else if(deltaT > 14000 && deltaT < 18000)
-          {
-            if(delta_pC > delta_pB){
+					}
+					else if(phase == 3){
+						if(delta_pB > delta_pC){
 							OFF_LED_PA();
 							OFF_LED_PB();
 							ON_LED_PC();
@@ -479,31 +440,50 @@ int main(void)
 							OFF_LED_PA();
 							ON_LED_PB();
 							OFF_LED_PC();
+
 						}
-          }
+					}
 					else{
 						OFF_LED_PA();
-							OFF_LED_PB();
-							OFF_LED_PC ();
+						OFF_LED_PB();
+						OFF_LED_PC();
 					}
+  
 					
 					//flag_tx_log = 1;
 
       }
     }
+		
+		if(cnt_detect_phase == 0){
+			OFF_LED_PA();
+			OFF_LED_PB();
+			OFF_LED_PC();
+			point_pA = 0;
+			point_pB = 0;
+			point_pC = 0;
+		}
 
     if(flag_tx_log == 1){
 			flag_tx_log = 0;
 			//sprintf(uart_tx_log, "%u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS);
 			
-			//sprintf(uart_tx_log, "%u %u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS, interval_zc);
-
+			//sprintf(uart_tx_log, "%u %u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS, interval_zc);			
 			sprintf(uart_tx_log, "%u %u %u %u %u\n",++stt, deltaT, LN, delta_pB, delta_pC);
 
 			HAL_UART_Transmit_DMA(&huart1, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
 		}
 		
-    Get_Offset();
+		if(flag_get_zero){
+			flag_get_zero = 0;
+			
+			uint32_t sum = 0;
+			for(uint16_t i=0; i<1000; i++){
+				sum+= adc_raw_pS;
+				HAL_Delay(1);
+			}	
+			offset_ZpS = sum/1000;
+		}
 
   }
   /* USER CODE END 3 */
@@ -603,53 +583,6 @@ static void MX_ADC1_Init(void)
 }
 
 /**
-  * @brief ADC2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_ADC2_Init(void)
-{
-
-  /* USER CODE BEGIN ADC2_Init 0 */
-
-  /* USER CODE END ADC2_Init 0 */
-
-  ADC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN ADC2_Init 1 */
-
-  /* USER CODE END ADC2_Init 1 */
-
-  /** Common config
-  */
-  hadc2.Instance = ADC2;
-  hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc2.Init.ContinuousConvMode = DISABLE;
-  hadc2.Init.DiscontinuousConvMode = DISABLE;
-  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc2.Init.NbrOfConversion = 1;
-  if (HAL_ADC_Init(&hadc2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_1;
-  sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
-  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN ADC2_Init 2 */
-
-  /* USER CODE END ADC2_Init 2 */
-
-}
-
-/**
   * @brief SPI1 Initialization Function
   * @param None
   * @retval None
@@ -730,64 +663,6 @@ static void MX_TIM1_Init(void)
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
-
-}
-
-/**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -907,44 +782,44 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, LED_DEBUG_Pin|INT_GEN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, NSS_Pin|GPIO_Spare0_Pin|MCU_BUZZER_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, RF_RESET_Pin|GPIO_Spare1_Pin|LED_PA_Pin|LED_PB_Pin
-                          |LED_PC_Pin|LED_STATUS_SLAVE_2_Pin|LED_STATUS_SLAVE_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, RF_RESET_Pin|GenOut_Pin|LED_PC_Pin|LED_PB_Pin
+                          |LED_PA_Pin|Receiver_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : LED_DEBUG_ON_BOARD_Pin */
-  GPIO_InitStruct.Pin = LED_DEBUG_ON_BOARD_Pin;
+  /*Configure GPIO pins : LED_DEBUG_Pin INT_GEN_Pin */
+  GPIO_InitStruct.Pin = LED_DEBUG_Pin|INT_GEN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_DEBUG_ON_BOARD_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : NSS_Pin GPIO_Spare0_Pin MCU_BUZZER_Pin */
-  GPIO_InitStruct.Pin = NSS_Pin|GPIO_Spare0_Pin|MCU_BUZZER_Pin;
+  /*Configure GPIO pin : NSS_Pin */
+  GPIO_InitStruct.Pin = NSS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(NSS_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : RF_RESET_Pin GPIO_Spare1_Pin LED_STATUS_SLAVE_2_Pin LED_STATUS_SLAVE_1_Pin */
-  GPIO_InitStruct.Pin = RF_RESET_Pin|GPIO_Spare1_Pin|LED_STATUS_SLAVE_2_Pin|LED_STATUS_SLAVE_1_Pin;
+  /*Configure GPIO pins : RF_RESET_Pin GenOut_Pin Receiver_Pin */
+  GPIO_InitStruct.Pin = RF_RESET_Pin|GenOut_Pin|Receiver_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : DIO0_Pin */
-  GPIO_InitStruct.Pin = DIO0_Pin;
+  /*Configure GPIO pins : DIO0_Pin PB10 */
+  GPIO_InitStruct.Pin = DIO0_Pin|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(DIO0_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED_PA_Pin LED_PB_Pin LED_PC_Pin */
-  GPIO_InitStruct.Pin = LED_PA_Pin|LED_PB_Pin|LED_PC_Pin;
+  /*Configure GPIO pins : LED_PC_Pin LED_PB_Pin LED_PA_Pin */
+  GPIO_InitStruct.Pin = LED_PC_Pin|LED_PB_Pin|LED_PA_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -954,71 +829,15 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-
-void Get_Offset(void)
-{  
-  if(flag_get_zero == 0) return;
-  flag_get_zero = 0;
-
-  uint32_t sumS = 0;
-
-  for(int i=0; i<1000; i++)
-  {
-    sumS += adc_raw_pS;
-    HAL_Delay(1);
-  }
-
-  offset_pS = sumS/1000;
-}
-
-void OFF_LED_STATUS(void)
-{
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_1_GPIO_Port, LED_STATUS_SLAVE_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_2_GPIO_Port, LED_STATUS_SLAVE_2_Pin, GPIO_PIN_SET);
-}
-
-void ON_LED_STATUS_1(void)
-{
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_1_GPIO_Port, LED_STATUS_SLAVE_1_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_2_GPIO_Port, LED_STATUS_SLAVE_2_Pin, GPIO_PIN_SET);
-}
-
-void ON_LED_STATUS_2(void)
-{
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_1_GPIO_Port, LED_STATUS_SLAVE_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_2_GPIO_Port, LED_STATUS_SLAVE_2_Pin, GPIO_PIN_RESET);
-}
-
-void MA_Init(MA_Filter_t *f, uint16_t init_value)
-{
-    f->sum = 0;
-    f->index = 0;
-
-    for(int i=0; i<MA_SIZE; i++)
-    {
-        f->buf[i] = init_value;
-        f->sum += init_value;
-    }
-}
-
-uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
-{
-    f->sum -= f->buf[f->index];
-    f->buf[f->index] = sample;
-    f->sum += sample;
-    f->index++;
-
-    if(f->index >= MA_SIZE)
-        f->index = 0;
-
-    return f->sum / MA_SIZE;
-}
 
 /* USER CODE END 4 */
 
