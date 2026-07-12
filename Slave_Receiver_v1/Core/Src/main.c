@@ -37,8 +37,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
-#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
 #define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
 
 #define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
@@ -56,10 +56,10 @@
 
 #define CYCLE_GRID 20000
 
-#define RANGE_GRID_L 19500
-#define RANGE_GRID_H 20500
+#define RANGE_GRID_L 19750
+#define RANGE_GRID_H 20750
 
-#define TIME_PHASE_DETECT 5000  // 1s
+#define TIME_DET_PHASE 50   // 2s
 
 #define pA_L   6000
 #define pA_H   8000
@@ -91,18 +91,27 @@ typedef enum
   MODE_FLASH_2 = 6,
 }MODE_LED_e;
 
+typedef enum
+{
+  BUZZER_OFF = 0,
+  BUZZER_ON = 1,
+  BUZZER_SET_TRIGGER_PIP = 2,
+  BUZZER_TRIGGER_PIP = 3,
+}MODE_BUZZER_e;
+
 typedef struct {
-    uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
+    volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
     MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
     uint16_t zero_val;     // Giá trị ZERO_PX
-    uint16_t p_cur;
-    uint16_t p_prev;
-    uint16_t cnt_detect;
-    uint32_t last_zc;
-    uint32_t now_zc;
-    uint32_t interval_zc;
-    bool zc_ok;
-    bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
+		volatile bool start_detect;
+    volatile bool phase_detected;
+    volatile uint16_t p_cur;
+    volatile uint16_t p_prev;
+    volatile uint16_t cnt_detect;
+    volatile uint32_t last_zc;
+    volatile uint32_t now_zc;
+    volatile uint32_t interval_zc;
+    volatile bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
 } Phase_Data_t;
 
 /* USER CODE END PD */
@@ -130,6 +139,7 @@ DMA_HandleTypeDef hdma_usart1_tx;
 uint32_t tick_slave = 0;
 uint32_t cnt_timetick = 0;
 uint32_t cycle_timetick = 20000;
+volatile uint16_t cnt_det_loss_grid = 0;
 
 volatile uint32_t ovf_tim3 = 0;
 volatile uint8_t flag_cnt_50us = 0;
@@ -138,10 +148,9 @@ volatile uint8_t flag_cnt_50us = 0;
 volatile MODE_LED_e mode_led_status = MODE_OFF;
 volatile uint16_t cnt_handle_led = 0;
 
-//BUZZER PASSIVE
+//BUZZER
 volatile MODE_BUZZER_e mode_buzzer_status = BUZZER_OFF;
 volatile uint16_t cnt_handle_buzzer = 0;
-volatile uint32_t cnt_buzzer_pip_time = 0;
 
 //LoRa variables
 LoRa vLoRa;
@@ -163,8 +172,6 @@ Phase_Data_t phaseS;
 uint8_t flag_tx_log = 0;
 char uart_tx_log[100];
 uint32_t stt = 0;
-
-
 
 // For calib ADC at zeropoint
 uint8_t flag_get_zero = 0;
@@ -214,19 +221,20 @@ uint32_t GetTimeUs(){
     ovf2 = ovf_tim3;
   } while (ovf1 != ovf2); // Guard against rollover during reading
 
-  return ((uint32_t)ovf1 << 16) + cnt;
+  return (ovf1 << 16) + cnt;
 }
 
-void Phase_init(Phase_Data_t* p_data, uint16_t* adc_raw_ptr, uint16_t zero_val){
+void Phase_init(Phase_Data_t* p_data, volatile  uint16_t* adc_raw_ptr, uint16_t zero_val){
     p_data->adc_raw_ptr = adc_raw_ptr;
     p_data->zero_val = zero_val;
+		p_data->start_detect = false;
     p_data->p_cur = 0;
     p_data->p_prev = 0;
     p_data->cnt_detect = 0;
     p_data->last_zc = 0;
     p_data->now_zc = 0;
     p_data->interval_zc = 0;
-    p_data->zc_ok = false;
+    p_data->phase_detected = false;
     p_data->has_new_edge = false;
 
     MA_Init(&p_data->filter, zero_val);
@@ -235,25 +243,21 @@ void Phase_init(Phase_Data_t* p_data, uint16_t* adc_raw_ptr, uint16_t zero_val){
 static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
 {
     phase->p_cur = MA_Update(&phase->filter, *(phase->adc_raw_ptr));
+	
+		if(phase->start_detect == false){
+			if(phase->p_cur < phase->zero_val - 100){
+				phase->start_detect = true;
+			}
+			else{
+				return;
+			}
+		}
 
     uint32_t itv_lZC = now_time - phase->last_zc;
-    
-
-    /* Detect loss grid */
-    if ((itv_lZC > 100000) && (phase->last_zc != 0))
-    {
-        phase->zc_ok       = false;
-        phase->cnt_detect  = 0;
-        phase->last_zc     = 0;
-    }
 
     /* Rising Zero-Cross */
-    if ((phase->p_prev <= phase->zero_val) &&(phase->p_cur  >  phase->zero_val))
+    if (phase->p_prev < phase->zero_val && phase->p_cur  >  phase->zero_val)
     {
-        while(itv_lZC > RANGE_GRID_H){
-          itv_lZC -= CYCLE_GRID;
-        }
-
         /* First edge after startup or loss-grid */
         if (phase->last_zc == 0U)
         {
@@ -261,33 +265,55 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
         }
         else
         {
+						while(itv_lZC > RANGE_GRID_H){
+							itv_lZC -= CYCLE_GRID;
+						}
             if ((itv_lZC >= RANGE_GRID_L) && (itv_lZC <= RANGE_GRID_H))
             {
-                phase->now_zc       = now_time;
-                phase->interval_zc  = itv_lZC;
-                phase->has_new_edge = true;
-
-                phase->last_zc = now_time;
-
-                if (phase->cnt_detect < TIME_PHASE_DETECT){
-                  if (++phase->cnt_detect == TIME_PHASE_DETECT){
-                    phase->zc_ok = true;
-                  }
+							phase->now_zc       = now_time;
+							phase->interval_zc  = itv_lZC;
+                
+              phase->has_new_edge = true;
+              if (phase->cnt_detect < TIME_DET_PHASE){
+                if (++phase->cnt_detect == TIME_DET_PHASE){
+                  phase->phase_detected = true;
+                  mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
+                  cnt_send_cmd = 0;			// start send cmd
                 }
+              }  
+              phase->last_zc = now_time;
             }
+						
         }
     }
     phase->p_prev = phase->p_cur;
+}
+
+void Detect_loss_grid(void)
+{
+	if(cnt_det_loss_grid < 500)	return;			// every 20ms
+	cnt_det_loss_grid = 0;
+		
+	uint32_t now_time = GetTimeUs();
+  if(phaseS.phase_detected && now_time > phaseS.last_zc){
+			if((now_time - phaseS.last_zc) > 100000){		//100ms ~ 5 grid cycle
+					phaseS.phase_detected = false;
+					phaseS.cnt_detect  = 0;
+					phaseS.last_zc     = 0;
+					phaseS.now_zc = 0;
+					phaseS.start_detect = false;
+			}
+	}
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM1)
   {
+    cnt_timetick++;
     cnt_handle_led++;
     cnt_handle_buzzer++;
-    cnt_timetick++;
-
+    
     if(++flag_cnt_50us >= 2)    // 50us or 100us
     {
       uint32_t now_time = GetTimeUs();
@@ -300,7 +326,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       }
     }
   }
-  if(htim->Instance == TIM3)
+
+  if(htim->Instance == TIM3)        // every 65535us
   {
     ovf_tim3++;
   }
@@ -373,6 +400,10 @@ int main(void)
 
 	ON_LED_DEBUG();
   ON_LED_STATUS_1();
+
+  ON_LED_PA();
+  ON_LED_PB();
+  ON_LED_PC();
 
 	Lora_Init(&vLoRa, &hspi1, 912);
 	LoRa_reset(&vLoRa);
@@ -496,7 +527,16 @@ int main(void)
 			HAL_UART_Transmit_DMA(&huart1, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
 		}
 		
+    // Get offset for ADC measurement
     Get_Offset();
+
+    // Handle LED status
+    Handle_LED();
+
+    // Handle Buzzer
+    Handle_Buzzer();
+
+		Detect_loss_grid();	
 
   }
   /* USER CODE END 3 */
@@ -968,24 +1008,101 @@ void Get_Offset(void)
   }
 
   offset_pS = sumS/1000;
+  mode_buzzer_status = BUZZER_ON;
 }
 
 void OFF_LED_STATUS(void)
 {
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_1_GPIO_Port, LED_STATUS_SLAVE_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_2_GPIO_Port, LED_STATUS_SLAVE_2_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_RESET);
 }
 
 void ON_LED_STATUS_1(void)
 {
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_1_GPIO_Port, LED_STATUS_SLAVE_1_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_2_GPIO_Port, LED_STATUS_SLAVE_2_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_RESET);
 }
 
 void ON_LED_STATUS_2(void)
 {
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_1_GPIO_Port, LED_STATUS_SLAVE_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(LED_STATUS_SLAVE_2_GPIO_Port, LED_STATUS_SLAVE_2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_SET);
+}
+
+void Handle_LED(void)
+{
+  if(phaseA.phase_detected){ON_LED_PA();}
+	else{OFF_LED_PA();}	
+	
+	if(phaseB.phase_detected){ON_LED_PB();}
+	else{OFF_LED_PB();}	
+	
+	if(phaseC.phase_detected){ON_LED_PC();}
+	else{OFF_LED_PC();}	
+
+  switch(mode_led_status)
+  {
+    case MODE_OFF:
+      OFF_LED_STATUS();
+      break;
+    case MODE_STS_1:
+      ON_LED_STATUS_1();
+      break;
+    case MODE_STS_2:
+      ON_LED_STATUS_2();
+      break;
+    case MODE_SET_FLASH_1:
+      cnt_handle_led = 0;
+      ON_LED_STATUS_1();
+      mode_led_status = MODE_FLASH_1;
+      break;
+    case MODE_FLASH_1:
+      if(cnt_handle_led >= 600){			// 30ms
+        cnt_handle_led = 0;
+        mode_led_status = MODE_OFF;      
+      }
+      break;
+    case MODE_SET_FLASH_2:
+      cnt_handle_led = 0;
+      ON_LED_STATUS_2();
+      mode_led_status = MODE_FLASH_2;
+      break;
+    case MODE_FLASH_2:
+      if(cnt_handle_led >= 600){			// 30ms
+        cnt_handle_led = 0;
+        mode_led_status = MODE_OFF;      
+      }
+      break;
+    default:
+      break;     
+  }
+}
+
+void Handle_Buzzer(void)
+{
+  switch(mode_buzzer_status)
+  {
+    case BUZZER_OFF:
+      BUZZER_OFF();
+      break;
+    case BUZZER_ON:
+			BUZZER_ON();
+      break;
+    case BUZZER_SET_TRIGGER_PIP:
+      // Initialize pip mode
+      cnt_handle_buzzer = 0;
+			BUZZER_ON();
+      mode_buzzer_status = BUZZER_TRIGGER_PIP;
+      break;
+    case BUZZER_TRIGGER_PIP:
+      if(cnt_handle_buzzer >= 5000)					// 250ms
+      {
+        mode_buzzer_status = BUZZER_OFF;
+      }
+      break;
+    default:
+      break;
+  }
 }
 
 void MA_Init(MA_Filter_t *f, uint16_t init_value)
