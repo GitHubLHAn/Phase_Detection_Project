@@ -50,7 +50,11 @@
 #define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
 #define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
 
-#define MA_SIZE 5
+#define MA_SIZE_MAX 100
+#define MA_SIZE_PHASE_ZC  5
+#define MA_SIZE_BAT       8
+
+#define MAX_SIZE_LORA 12
 
 #define ZERO_PS 1971
 
@@ -61,34 +65,39 @@
 
 #define TIME_DET_PHASE 50   // 2s
 
-#define pA_L   6000
-#define pA_H   8000
+#define pA_L   0
+#define pA_H   6667
 
-#define pB_L   1900
-#define pB_H   867
+#define pB_L   13333
+#define pB_H   20000
 
-#define pC_L   1367
-#define pC_H   1567
+#define pC_L   6667
+#define pC_H   13333
+
+#define BATTERY_LOW   9.4
+#define BATTERY_FULL  10.8
 
 
 typedef struct
 {
-    uint16_t buf[MA_SIZE];
+    uint16_t buf[MA_SIZE_MAX];
     uint32_t sum;
     uint8_t index;
+    uint16_t size;
 } MA_Filter_t;
 
 typedef enum
 {
+  MODE_IDLE = 0xFF,
   MODE_OFF = 0,
-  MODE_STS_1 = 1,
-  MODE_STS_2 = 2,
+  MODE_STS_G = 1,
+  MODE_STS_R = 2,
 
-  MODE_SET_FLASH_1 = 3,
-  MODE_FLASH_1 = 4,
+  MODE_SET_FLASH_G = 3,
+  MODE_FLASH_G = 4,
 
-  MODE_SET_FLASH_2 = 5,
-  MODE_FLASH_2 = 6,
+  MODE_SET_FLASH_R = 5,
+  MODE_FLASH_R = 6,
 }MODE_LED_e;
 
 typedef enum
@@ -98,6 +107,12 @@ typedef enum
   BUZZER_SET_TRIGGER_PIP = 2,
   BUZZER_TRIGGER_PIP = 3,
 }MODE_BUZZER_e;
+
+typedef enum
+{
+  NORMAL = 0,
+  BAT_LOW = 1,
+}SLAVE_STATUS_e;
 
 typedef struct {
     volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
@@ -112,7 +127,23 @@ typedef struct {
     volatile uint32_t now_zc;
     volatile uint32_t interval_zc;
     volatile bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
-} Phase_Data_t;
+  } Phase_Data_t;
+
+typedef struct {
+    volatile uint16_t* adc_raw_ptr;
+    MA_Filter_t filter;
+    float vBat_raw, vBat_filtered;
+    uint16_t adc_filterd;
+
+    uint16_t cnt_low_bat;
+    uint16_t cnt_full_bat;
+
+    bool flag_track_charge_full;
+
+    uint32_t last_time;
+    uint32_t interval_time;
+    uint32_t now_time;
+}Battery_Data_t;
 
 /* USER CODE END PD */
 
@@ -145,49 +176,56 @@ volatile uint32_t ovf_tim3 = 0;
 volatile uint8_t flag_cnt_50us = 0;
 
 // LED
-volatile MODE_LED_e mode_led_status = MODE_OFF;
+volatile MODE_LED_e mode_led = MODE_IDLE;
 volatile uint16_t cnt_handle_led = 0;
 
 //BUZZER
-volatile MODE_BUZZER_e mode_buzzer_status = BUZZER_OFF;
+volatile MODE_BUZZER_e mode_buzzer = BUZZER_OFF;
 volatile uint16_t cnt_handle_buzzer = 0;
 
 //LoRa variables
 LoRa vLoRa;
 uint16_t config_lora = 0xFA;
 
-uint8_t TX_Lora_buff[12];
-uint8_t RX_LoRa_buff[12];
+uint8_t TX_Lora_buff[MAX_SIZE_LORA];
+uint8_t RX_LoRa_buff[MAX_SIZE_LORA];
 
 uint8_t rec_ok = 0;
 uint16_t cnt_recOK = 0;
 volatile uint16_t num_RX_irq_LoRa = 0;
 volatile bool flag_Lora_Rx = false;
 
+SLAVE_STATUS_e slave_status = NORMAL;
+
 // Phase variables	
 Phase_Data_t phaseS;
 
+// ADC measurement variables
+volatile uint16_t adc_raw[2];
+
+// Battery measurement
+Battery_Data_t battery;
+
+// For calib ADC at zeropoint
+uint8_t flag_get_zero = 0;
+uint16_t offset_pS = 0;
 
 // For logging
 uint8_t flag_tx_log = 0;
 char uart_tx_log[100];
 uint32_t stt = 0;
 
-// For calib ADC at zeropoint
-uint8_t flag_get_zero = 0;
-uint16_t offset_pS = 0;
-
-// Debug variables
+// Other variables
 uint16_t delta_pA = 0;
 uint16_t delta_pB = 0;
 uint16_t delta_pC = 0;
 
-uint64_t tx_time = 0;
-uint64_t rx_time = 0;
-uint32_t deltaT = 0;
-uint32_t LN = 0;
-
+uint32_t tx_time = 0, rx_time = 0;
+uint32_t deltaT_mod = 0, deltaT_div = 0;
 uint32_t latency = 0;
+
+uint16_t point_pA = 0, point_pB = 0, point_pC = 0;
+
 					
 /* USER CODE END PV */
 
@@ -206,9 +244,9 @@ static void MX_TIM2_Init(void);
 
 void Get_Offset(void);
 void OFF_LED_STATUS(void);
-void ON_LED_STATUS_1(void);
-void ON_LED_STATUS_2(void);
-void MA_Init(MA_Filter_t *f, uint16_t init_value);
+void ON_LED_STATUS_G(void);
+void ON_LED_STATUS_R(void);
+void MA_Init(MA_Filter_t *f, uint16_t init_value, uint16_t size);
 uint16_t MA_Update(MA_Filter_t *f, uint16_t sample);
 
 uint32_t GetTimeUs(){
@@ -236,8 +274,7 @@ void Phase_init(Phase_Data_t* p_data, volatile  uint16_t* adc_raw_ptr, uint16_t 
     p_data->interval_zc = 0;
     p_data->phase_detected = false;
     p_data->has_new_edge = false;
-
-    MA_Init(&p_data->filter, zero_val);
+    MA_Init(&p_data->filter, zero_val, MA_SIZE_PHASE_ZC);
 }
 
 static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
@@ -256,7 +293,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
     uint32_t itv_lZC = now_time - phase->last_zc;
 
     /* Rising Zero-Cross */
-    if (phase->p_prev < phase->zero_val && phase->p_cur  >  phase->zero_val)
+    if (phase->p_prev <= phase->zero_val && phase->p_cur  >  phase->zero_val)
     {
         /* First edge after startup or loss-grid */
         if (phase->last_zc == 0U)
@@ -277,13 +314,11 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
               if (phase->cnt_detect < TIME_DET_PHASE){
                 if (++phase->cnt_detect == TIME_DET_PHASE){
                   phase->phase_detected = true;
-                  mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
-                  cnt_send_cmd = 0;			// start send cmd
+                  mode_buzzer = BUZZER_SET_TRIGGER_PIP;
                 }
               }  
               phase->last_zc = now_time;
-            }
-						
+            }			
         }
     }
     phase->p_prev = phase->p_cur;
@@ -320,10 +355,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       flag_cnt_50us = 0;
 
       Process_Phase_ZC(&phaseS, now_time);
-
-      if(phaseS.has_new_edge == true){
-        phaseS.has_new_edge = false;
-      }
     }
   }
 
@@ -332,7 +363,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     ovf_tim3++;
   }
 }
-
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
@@ -348,9 +378,23 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 //		{
 //			tx_time = GetTimeUs(); 
 //		}
-
 }
 
+void Battery_init(Battery_Data_t* pBat, volatile  uint16_t* adc_raw_ptr){
+    pBat->adc_raw_ptr = adc_raw_ptr;
+    pBat->vBat_raw = 0.0f;
+    pBat->vBat_filtered = 0.0f;
+    pBat->adc_filterd = 0;
+   
+    pBat->last_time = 0;
+    pBat->interval_time = 0;
+    pBat->now_time = 0;
+
+    pBat->cnt_low_bat = 0;
+    pBat->cnt_full_bat = 0;
+    pBat->flag_track_charge_full = false;
+    MA_Init(&pBat->filter, 0, MA_SIZE_BAT);
+}
 
 /* USER CODE END PFP */
 
@@ -399,7 +443,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
 	ON_LED_DEBUG();
-  ON_LED_STATUS_1();
+  ON_LED_STATUS_G();
 
   ON_LED_PA();
   ON_LED_PB();
@@ -420,12 +464,14 @@ int main(void)
   OFF_LED_DEBUG();
   OFF_LED_STATUS();
 
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw_pS, 1);
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw, 2);
 
   HAL_Delay(100);
 
-  Phase_init(&phaseS, &adc_raw_pS, ZERO_PS);
-	
+  Phase_init(&phaseS, &adc_raw[0], ZERO_PS);
+
+  Battery_init(&battery, &adc_raw[1]);
+
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
 
@@ -450,8 +496,6 @@ int main(void)
 			TOGGLE_LED_DEBUG();
     }
 
-
-		
 		// code mach receiver
     if(flag_Lora_Rx)
     {				
@@ -460,73 +504,73 @@ int main(void)
 
       uint8_t checksum = RX_LoRa_buff[0] + RX_LoRa_buff[1] + RX_LoRa_buff[2] + RX_LoRa_buff[3];
 
-      if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4])
+      if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4] && slave_status != BAT_LOW)
       {
-          mode_led_status = MODE_SET_FLASH_1;
+          mode_led = MODE_SET_FLASH_G;
           rx_time = GetTimeUs();
-          deltaT = (rx_time - phaseS.last_zc)%20000;
-					LN = (rx_time - phaseS.last_zc)/20000;
+          deltaT_mod = (rx_time - phaseS.last_zc)%20000;
+					deltaT_div = (rx_time - phaseS.last_zc)/20000;
 					latency = rx_time - tx_time;
 			 	
 					delta_pA = RX_LoRa_buff[1]*100;
 					delta_pB = RX_LoRa_buff[2]*100;
 					delta_pC = RX_LoRa_buff[3]*100;
 
-          if((deltaT > 0 && deltaT < 6000) || (deltaT > 19500 && deltaT < 20000))
-          {
-            ON_LED_PA();
-						OFF_LED_PB();
-						OFF_LED_PB();
-          }
-          else if(deltaT > 8000 && deltaT < 12000)
-          {
-						if(delta_pC > delta_pB){
-							OFF_LED_PA();
-							ON_LED_PB();
-							OFF_LED_PC();
-						}
-						else{
-							OFF_LED_PA();
-							OFF_LED_PB();
-							ON_LED_PC();
-						}
-            
-          }
-          else if(deltaT > 14000 && deltaT < 18000)
-          {
-            if(delta_pC > delta_pB){
-							OFF_LED_PA();
-							OFF_LED_PB();
-							ON_LED_PC();
-						}
-						else{
-							OFF_LED_PA();
-							ON_LED_PB();
-							OFF_LED_PC();
-						}
-          }
-					else{
-						OFF_LED_PA();
-							OFF_LED_PB();
-							OFF_LED_PC ();
+          if(deltaT_mod <= 6667){
+            point_pA++;
+          }else if(deltaT_mod <= 13333){
+						point_pC++;
+					}else{
+						point_pB++;
 					}
-					
-					//flag_tx_log = 1;
 
-      }
+          uint8_t phase_check = 0;
+          if(point_pA > point_pB && point_pA > point_pC){
+            phase_check = 1;
+          }else if(point_pB > point_pA && point_pB > point_pC){
+            phase_check = 2;
+          }else if(point_pC > point_pA && point_pC > point_pB){
+            phase_check = 3;
+          }else{
+            phase_check = 0;
+          }
+
+          if(phase_check == 1){
+						ON_LED_PA();
+						OFF_LED_PB();
+						OFF_LED_PC();
+					}else if(phase_check == 2){
+						if(delta_pB > delta_pC){
+							OFF_LED_PA();
+							ON_LED_PB();
+							OFF_LED_PC();
+						}else{
+							OFF_LED_PA();
+							OFF_LED_PB();
+							ON_LED_PC();
+						}
+					}else if(phase_check == 3){
+						if(delta_pB > delta_pC){
+							OFF_LED_PA();
+							OFF_LED_PB();
+							ON_LED_PC();
+						}else{
+							OFF_LED_PA();
+							ON_LED_PB();
+							OFF_LED_PC();
+
+						}
+					}else{
+						OFF_LED_PA();
+						OFF_LED_PB();
+						OFF_LED_PC();
+					}
+      
+        }
+      memset(RX_LoRa_buff, 0, MAX_SIZE_LORA);
+      
     }
 
-    if(flag_tx_log == 1){
-			flag_tx_log = 0;
-			//sprintf(uart_tx_log, "%u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS);
-			
-			//sprintf(uart_tx_log, "%u %u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS, interval_zc);
-
-			sprintf(uart_tx_log, "%u %u %u %u %u\n",++stt, deltaT, LN, delta_pB, delta_pC);
-
-			HAL_UART_Transmit_DMA(&huart1, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
-		}
-		
     // Get offset for ADC measurement
     Get_Offset();
 
@@ -536,7 +580,23 @@ int main(void)
     // Handle Buzzer
     Handle_Buzzer();
 
+    // Detect loss grid
 		Detect_loss_grid();	
+
+    // Battery Voltage Meas
+    Battery_Handle(&battery);
+
+    // For debug
+    if(flag_tx_log == 1){
+			flag_tx_log = 0;
+			//sprintf(uart_tx_log, "%u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS);
+			
+			//sprintf(uart_tx_log, "%u %u %u %u\n",++stt, adc_raw_pS, adc_filtered_pS, interval_zc);
+
+			//sprintf(uart_tx_log, "%u %u %u %u %u\n",++stt, deltaT, LN, delta_pB, delta_pC);
+
+			//HAL_UART_Transmit_DMA(&huart1, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
+		}
 
   }
   /* USER CODE END 3 */
@@ -1008,7 +1068,7 @@ void Get_Offset(void)
   }
 
   offset_pS = sumS/1000;
-  mode_buzzer_status = BUZZER_ON;
+  mode_buzzer = BUZZER_ON;
 }
 
 void OFF_LED_STATUS(void)
@@ -1017,13 +1077,13 @@ void OFF_LED_STATUS(void)
   HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_RESET);
 }
 
-void ON_LED_STATUS_1(void)
+void ON_LED_STATUS_G(void)
 {
   HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_RESET);
 }
 
-void ON_LED_STATUS_2(void)
+void ON_LED_STATUS_R(void)
 {
   HAL_GPIO_WritePin(LED_STATUS_MASTER_1_GPIO_Port, LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(LED_STATUS_MASTER_2_GPIO_Port, LED_STATUS_MASTER_2_Pin, GPIO_PIN_SET);
@@ -1031,46 +1091,52 @@ void ON_LED_STATUS_2(void)
 
 void Handle_LED(void)
 {
-  if(phaseA.phase_detected){ON_LED_PA();}
-	else{OFF_LED_PA();}	
-	
-	if(phaseB.phase_detected){ON_LED_PB();}
-	else{OFF_LED_PB();}	
-	
-	if(phaseC.phase_detected){ON_LED_PC();}
-	else{OFF_LED_PC();}	
+  if(!phaseS.phase_detected){
+    point_pA = 0;
+    point_pB = 0;
+    point_pC = 0;
 
-  switch(mode_led_status)
+    OFF_LED_PA();
+    OFF_LED_PB();
+    OFF_LED_PC();
+  }
+
+  switch(mode_led)
   {
+    case MODE_IDLE:
+      break;
     case MODE_OFF:
       OFF_LED_STATUS();
+      mode_led = MODE_IDLE;
       break;
-    case MODE_STS_1:
-      ON_LED_STATUS_1();
+    case MODE_STS_G:
+      ON_LED_STATUS_G();
+      mode_led = MODE_IDLE;
       break;
-    case MODE_STS_2:
-      ON_LED_STATUS_2();
+    case MODE_STS_R:
+      ON_LED_STATUS_R();
+      mode_led = MODE_IDLE;
       break;
-    case MODE_SET_FLASH_1:
+    case MODE_SET_FLASH_G:
       cnt_handle_led = 0;
-      ON_LED_STATUS_1();
-      mode_led_status = MODE_FLASH_1;
+      ON_LED_STATUS_G();
+      mode_led = MODE_FLASH_G;
       break;
-    case MODE_FLASH_1:
-      if(cnt_handle_led >= 600){			// 30ms
+    case MODE_FLASH_G:
+      if(cnt_handle_led >= 1800){			// 30ms
         cnt_handle_led = 0;
-        mode_led_status = MODE_OFF;      
+        mode_led = MODE_OFF;      
       }
       break;
-    case MODE_SET_FLASH_2:
+    case MODE_SET_FLASH_R:
       cnt_handle_led = 0;
-      ON_LED_STATUS_2();
-      mode_led_status = MODE_FLASH_2;
+      ON_LED_STATUS_R();
+      mode_led = MODE_FLASH_R;
       break;
-    case MODE_FLASH_2:
-      if(cnt_handle_led >= 600){			// 30ms
+    case MODE_FLASH_R:
+      if(cnt_handle_led >= 1800){			// 30ms
         cnt_handle_led = 0;
-        mode_led_status = MODE_OFF;      
+        mode_led = MODE_OFF;      
       }
       break;
     default:
@@ -1080,7 +1146,7 @@ void Handle_LED(void)
 
 void Handle_Buzzer(void)
 {
-  switch(mode_buzzer_status)
+  switch(mode_buzzer)
   {
     case BUZZER_OFF:
       BUZZER_OFF();
@@ -1092,12 +1158,12 @@ void Handle_Buzzer(void)
       // Initialize pip mode
       cnt_handle_buzzer = 0;
 			BUZZER_ON();
-      mode_buzzer_status = BUZZER_TRIGGER_PIP;
+      mode_buzzer = BUZZER_TRIGGER_PIP;
       break;
     case BUZZER_TRIGGER_PIP:
       if(cnt_handle_buzzer >= 5000)					// 250ms
       {
-        mode_buzzer_status = BUZZER_OFF;
+        mode_buzzer = BUZZER_OFF;
       }
       break;
     default:
@@ -1105,12 +1171,54 @@ void Handle_Buzzer(void)
   }
 }
 
-void MA_Init(MA_Filter_t *f, uint16_t init_value)
+void Battery_Handle(Battery_Data_t *pBat)
+{
+  pBat->now_time = HAL_GetTick();
+  pBat->interval_time = pBat->now_time - pBat->last_time;
+  if(pBat->interval_time < 500) return;
+  pBat->last_time = pBat->now_time;
+
+  pBat->vBat_raw = 0;   // tinh dien ap theo "*(pBat->adc_raw_ptr)"
+
+  pBat->adc_filterd = MA_Update(&pBat->filter, *(pBat->adc_raw_ptr));
+
+  pBat->vBat_filtered = 0;     // tinh dien ap theo "pBat->adc_filterd"
+
+  if(pBat->vBat_filtered < BATTERY_LOW && pBat->cnt_low_bat < 60)  // low bat in 30s
+  {
+    if(++pBat->cnt_low_bat == 60){
+      slave_status = BAT_LOW;
+      mode_led = MODE_STS_R;
+    }
+  }else{
+    pBat->cnt_low_bat = 0;
+  }
+
+  // Enable track charge process to full battery
+  if(pBat->flag_track_charge_full == false && pBat->vBat_filtered < BATTERY_FULL-0.5f && pBat->vBat_filtered > 3.0f)
+  {
+    pBat->flag_track_charge_full = true;
+  }
+
+  if(pBat->vBat_filtered > BATTERY_FULL && pBat->cnt_full_bat < 120 && pBat->flag_track_charge_full){
+    if(++pBat->cnt_full_bat == 120){
+      slave_status = NORMAL;
+      mode_led = MODE_STS_G;
+      pBat->flag_track_charge_full = false;
+    }
+  }else{
+    pBat->cnt_full_bat = 0;
+  }
+}
+
+
+void MA_Init(MA_Filter_t *f, uint16_t init_value, uint8_t sizeMA)
 {
     f->sum = 0;
     f->index = 0;
+    f->size = sizeMA;
 
-    for(int i=0; i<MA_SIZE; i++)
+    for(int i=0; i<f->size; i++)
     {
         f->buf[i] = init_value;
         f->sum += init_value;
@@ -1124,10 +1232,10 @@ uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
     f->sum += sample;
     f->index++;
 
-    if(f->index >= MA_SIZE)
+    if(f->index >= f->size)
         f->index = 0;
 
-    return f->sum / MA_SIZE;
+    return f->sum / f->size;
 }
 
 /* USER CODE END 4 */

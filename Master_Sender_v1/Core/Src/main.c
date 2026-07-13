@@ -270,7 +270,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
     uint32_t itv_lZC = now_time - phase->last_zc;
 
     /* Rising Zero-Cross */
-    if (phase->p_prev < phase->zero_val && phase->p_cur  >  phase->zero_val)
+    if (phase->p_prev <= phase->zero_val && phase->p_cur  >  phase->zero_val)
     {
         /* First edge after startup or loss-grid */
         if (phase->last_zc == 0U)
@@ -284,8 +284,8 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
 						}
             if ((itv_lZC >= RANGE_GRID_L) && (itv_lZC <= RANGE_GRID_H))
             {
-							phase->now_zc       = now_time;
-							phase->interval_zc  = itv_lZC;
+                phase->now_zc       = now_time;
+                phase->interval_zc  = itv_lZC;
                 
                 phase->has_new_edge = true;
                 if (phase->cnt_detect < TIME_DET_PHASE){
@@ -297,7 +297,6 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
                 }  
 								phase->last_zc = now_time;
             }
-						
         }
     }
     phase->p_prev = phase->p_cur;
