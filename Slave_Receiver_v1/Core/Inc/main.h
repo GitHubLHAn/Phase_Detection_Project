@@ -61,8 +61,8 @@ void Error_Handler(void);
 #define LED_DEBUG_ON_BOARD_GPIO_Port GPIOC
 #define ADC1_IN0_PS_Pin GPIO_PIN_0
 #define ADC1_IN0_PS_GPIO_Port GPIOA
-#define ADC2_IN1_BAT_Pin GPIO_PIN_1
-#define ADC2_IN1_BAT_GPIO_Port GPIOA
+#define ADC1_IN1_BAT_Pin GPIO_PIN_1
+#define ADC1_IN1_BAT_GPIO_Port GPIOA
 #define NSS_Pin GPIO_PIN_4
 #define NSS_GPIO_Port GPIOA
 #define RF_RESET_Pin GPIO_PIN_0

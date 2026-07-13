@@ -37,7 +37,7 @@ void Lora_Init(LoRa *pL, SPI_HandleTypeDef *phspi, uint16_t frequency){
 	
 	pL->frequency             = frequency;							  // default = 91 MHz
 	pL->spredingFactor        = SF_12;							// default = SF_7
-	pL->bandWidth			       = BW_62_5KHz;       // default = BW_125KHz
+	pL->bandWidth			       = BW_125KHz;       // default = BW_125KHz
 	pL->crcRate				       = CR_4_5;						// default = CR_4_5
 	pL->power					       = POWER_20db;				// default = 20db
 	pL->overCurrentProtection = 120; 							// default = 100 mA

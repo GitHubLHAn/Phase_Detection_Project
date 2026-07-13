@@ -51,7 +51,7 @@
 #define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
 #define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
 
-// Buzzer passive
+// Buzzer active
 #define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
 #define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
 
@@ -259,7 +259,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
     phase->p_cur = MA_Update(&phase->filter, *(phase->adc_raw_ptr));
 	
 		if(phase->start_detect == false){
-			if(phase->p_cur < phase->zero_val - 100){
+			if(phase->p_cur < phase->zero_val - 200){
 				phase->start_detect = true;
 			}
 			else{
@@ -465,19 +465,22 @@ int main(void)
 
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw, 3);
 
-  HAL_Delay(100);
-
   Phase_init(&phaseA, &adc_raw[0], ZERO_PA);
   Phase_init(&phaseB, &adc_raw[1], ZERO_PB);
   Phase_init(&phaseC, &adc_raw[2], ZERO_PC);
 
-  HAL_TIM_Base_Start_IT(&htim1);
-  HAL_TIM_Base_Start_IT(&htim3);
-
+  BUZZER_ON(); HAL_Delay(30);
+	BUZZER_OFF(); HAL_Delay(300);
   OFF_LED_PA();
+	BUZZER_ON(); HAL_Delay(30);
+	BUZZER_OFF(); HAL_Delay(300);
   OFF_LED_PB();
+	BUZZER_ON(); HAL_Delay(30);
+	BUZZER_OFF(); HAL_Delay(300);
   OFF_LED_PC();
-	HAL_Delay(100);
+
+ HAL_TIM_Base_Start_IT(&htim1);
+  HAL_TIM_Base_Start_IT(&htim3);
 
   /* USER CODE END 2 */
 
