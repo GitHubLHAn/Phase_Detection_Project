@@ -69,9 +69,7 @@
 #define RANGE_GRID_L 19500
 #define RANGE_GRID_H 20500
 
-#define TIME_DET_PHASE 50   //      50*20ms = 1s
-#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
-
+#define TIME_DET_PHASE 75   // 1.5s
 
 #define pA_L   0
 #define pA_H   6667
@@ -122,14 +120,6 @@ typedef enum
   BAT_LOW = 1,
 }SLAVE_STATUS_e;
 
-typedef enum
-{
-  WAIT_NEG = 1,
-  WAIT_ZC_UP = 2,
-  WAIT_POS = 3,
-  LOSS_GRID = 4,
-}MODE_DETECT_e
-
 typedef struct {
     volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
     MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
@@ -143,9 +133,6 @@ typedef struct {
     volatile uint32_t now_zc;
     volatile uint32_t interval_zc;
     volatile bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
-
-    volatile MODE_DETECT_e mode_det;
-    volatile uint16_t cnt_det_loss_grid;
   } Phase_Data_t;
 
 typedef struct {
@@ -188,6 +175,7 @@ DMA_HandleTypeDef hdma_usart1_tx;
 uint32_t tick_slave = 0;
 uint32_t cnt_timetick = 0;
 uint32_t cycle_timetick = 20000;
+volatile uint16_t cnt_det_loss_grid = 0;
 
 volatile uint32_t ovf_tim3 = 0;
 volatile uint8_t flag_cnt_50us = 0;
@@ -295,79 +283,71 @@ void Phase_init(Phase_Data_t* p_data, volatile  uint16_t* adc_raw_ptr, uint16_t 
     p_data->phase_detected = false;
     p_data->has_new_edge = false;
     MA_Init(&p_data->filter, zero_val, MA_SIZE_PHASE_ZC);
-
-    p_data->mode_det = WAIT_NEG;
-    p_data->cnt_det_loss_grid = 0;
 }
 
 static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
 {
     phase->p_cur = MA_Update(&phase->filter, *(phase->adc_raw_ptr));
+	
+		if(phase->start_detect == false){
+			if(phase->p_cur < phase->zero_val - 200){
+				phase->start_detect = true;
+			}
+			else{
+				return;
+			}
+		}
 
-    switch(phase->mode_det)
+    uint32_t itv_lZC = now_time - phase->last_zc;
+
+    /* Rising Zero-Cross */
+    if (phase->p_prev <= phase->zero_val && phase->p_cur  >  phase->zero_val)
     {
-      case WAIT_NEG:
-        if (phase->p_cur < phase->zero_val - 100)
+        /* First edge after startup or loss-grid */
+        if (phase->last_zc == 0U)
         {
-          if(phase->phase_detected == true){
-            phase->mode_det = WAIT_ZC;
-          }else{
-            phase->mode_det = WAIT_POS;
-          }
+            phase->last_zc = now_time;
         }
-        break;
-      case WAIT_POS:
-        if (phase->p_cur > phase->zero_val + 100)
+        else
         {
-          if(++phase->cnt_detect == TIME_DET_PHASE){
-            phase->phase_detected = true;
-          }
-          phase->mode_det = WAIT_NEG;
-        }
-        break;
-      case WAIT_ZC_UP: 
-        uint32_t itv_lZC = now_time - phase->last_zc;
-
-        /* Rising Zero-Cross */
-        if (phase->p_prev <= phase->zero_val && phase->p_cur>phase->zero_val)
-        {
-            /* First edge after startup or loss-grid */
-            if (phase->last_zc == 0U)
+						while(itv_lZC > RANGE_GRID_H){
+							itv_lZC -= CYCLE_GRID;
+						}
+            if ((itv_lZC >= RANGE_GRID_L) && (itv_lZC <= RANGE_GRID_H))
             {
-                phase->last_zc = now_time;
-            }
-            else
-            {
-                while(itv_lZC > RANGE_GRID_H){
-                  itv_lZC -= CYCLE_GRID;
+							phase->now_zc       = now_time;
+							phase->interval_zc  = itv_lZC;
+                
+              phase->has_new_edge = true;
+              if (phase->cnt_detect < TIME_DET_PHASE){
+                if (++phase->cnt_detect == TIME_DET_PHASE){
+                  phase->phase_detected = true;
+                  //mode_buzzer = BUZZER_SET_TRIGGER_PIP;
                 }
-                if ((itv_lZC >= RANGE_GRID_L) && (itv_lZC <= RANGE_GRID_H))
-                {
-                  phase->now_zc       = now_time;
-                  phase->interval_zc  = itv_lZC;
-                    
-                  phase->has_new_edge = true;
-                  phase->last_zc = now_time;
-                  phase->cnt_det_loss_grid = 0;
-                }			
-            }
-            phase->mode_det = WAIT_NEG;
+              }  
+              phase->last_zc = now_time;
+            }			
         }
-        phase->p_prev = phase->p_cur;
-        break;
-      case LOSS_GRID:
-        phase->phase_detected = false;
-        phase->cnt_detect  = 0;
-        phase->last_zc     = 0;
-        phase->now_zc = 0;
-        phase->mode_det = WAIT_NEG;
-        break;
     }
-    
-    if(phase->phase_detected){
-      if(++phase->cnt_det_loss_grid == LOSS_GRID_TIMEOUT) phase->mode_det = LOSS_GRID;
-    }
-    
+    phase->p_prev = phase->p_cur;
+}
+
+uint32_t now_time = 0;
+void Detect_loss_grid(void)
+{
+	if(cnt_det_loss_grid < 500)	return;			// every 20ms
+	cnt_det_loss_grid = 0;
+		
+	now_time = GetTimeUs();
+  if(phaseS.phase_detected && now_time > phaseS.last_zc){
+			if((now_time - phaseS.last_zc) > 200000){		//100ms ~ 5 grid cycle
+					phaseS.phase_detected = false;
+					phaseS.cnt_detect  = 0;
+					phaseS.last_zc     = 0;
+					phaseS.now_zc = 0;
+					phaseS.start_detect = false;
+			}
+	}
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -383,6 +363,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     {
       uint32_t now_time = GetTimeUs();
       flag_cnt_50us = 0;
+			cnt_det_loss_grid++;
 
       Process_Phase_ZC(&phaseS, now_time);
     }
@@ -539,6 +520,9 @@ int main(void)
 
     // Handle Buzzer
     Handle_Buzzer();
+
+    // Detect loss grid
+		Detect_loss_grid();	
 
     // Battery Voltage Meas
     Battery_Handle(&battery);
