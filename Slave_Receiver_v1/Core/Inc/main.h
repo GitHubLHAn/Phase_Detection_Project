@@ -70,10 +70,11 @@ void Error_Handler(void);
 #define DIO0_Pin GPIO_PIN_1
 #define DIO0_GPIO_Port GPIOB
 #define DIO0_EXTI_IRQn EXTI1_IRQn
-#define GPIO_Spare1_Pin GPIO_PIN_15
-#define GPIO_Spare1_GPIO_Port GPIOB
-#define GPIO_Spare0_Pin GPIO_PIN_8
-#define GPIO_Spare0_GPIO_Port GPIOA
+#define SET_MODE_Pin GPIO_PIN_15
+#define SET_MODE_GPIO_Port GPIOB
+#define GET_IRQ_Pin GPIO_PIN_8
+#define GET_IRQ_GPIO_Port GPIOA
+#define GET_IRQ_EXTI_IRQn EXTI9_5_IRQn
 #define UART_TX_Spare_Pin GPIO_PIN_9
 #define UART_TX_Spare_GPIO_Port GPIOA
 #define UART_RX_Spare_Pin GPIO_PIN_10

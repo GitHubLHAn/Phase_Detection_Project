@@ -128,7 +128,7 @@ typedef enum
   WAIT_ZC_UP = 2,
   WAIT_POS = 3,
   LOSS_GRID = 4,
-}MODE_DETECT_e
+}MODE_DETECT_e;
 
 typedef struct {
     volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
@@ -310,7 +310,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
         if (phase->p_cur < phase->zero_val - 100)
         {
           if(phase->phase_detected == true){
-            phase->mode_det = WAIT_ZC;
+            phase->mode_det = WAIT_ZC_UP;
           }else{
             phase->mode_det = WAIT_POS;
           }
@@ -326,6 +326,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
         }
         break;
       case WAIT_ZC_UP: 
+			{
         uint32_t itv_lZC = now_time - phase->last_zc;
 
         /* Rising Zero-Cross */
@@ -355,6 +356,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
         }
         phase->p_prev = phase->p_cur;
         break;
+			}
       case LOSS_GRID:
         phase->phase_detected = false;
         phase->cnt_detect  = 0;
@@ -366,8 +368,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
     
     if(phase->phase_detected){
       if(++phase->cnt_det_loss_grid == LOSS_GRID_TIMEOUT) phase->mode_det = LOSS_GRID;
-    }
-    
+    }   
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -513,6 +514,14 @@ int main(void)
 	
 	HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
+	
+	uint16_t cnt_get_zero = 0;
+	while(HAL_GPIO_ReadPin(SET_MODE_GPIO_Port, SET_MODE_Pin) == GPIO_PIN_RESET){
+		if(++cnt_get_zero == 3000){
+			flag_get_zero = true;
+			break;
+		}
+	}
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -926,11 +935,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, NSS_Pin|GPIO_Spare0_Pin|MCU_BUZZER_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, NSS_Pin|MCU_BUZZER_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, RF_RESET_Pin|GPIO_Spare1_Pin|LED_PA_Pin|LED_PB_Pin
-                          |LED_PC_Pin|LED_STATUS_SLAVE_2_Pin|LED_STATUS_SLAVE_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, RF_RESET_Pin|LED_PA_Pin|LED_PB_Pin|LED_PC_Pin
+                          |LED_STATUS_SLAVE_2_Pin|LED_STATUS_SLAVE_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : LED_DEBUG_ON_BOARD_Pin */
   GPIO_InitStruct.Pin = LED_DEBUG_ON_BOARD_Pin;
@@ -939,15 +948,15 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_DEBUG_ON_BOARD_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : NSS_Pin GPIO_Spare0_Pin MCU_BUZZER_Pin */
-  GPIO_InitStruct.Pin = NSS_Pin|GPIO_Spare0_Pin|MCU_BUZZER_Pin;
+  /*Configure GPIO pins : NSS_Pin MCU_BUZZER_Pin */
+  GPIO_InitStruct.Pin = NSS_Pin|MCU_BUZZER_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : RF_RESET_Pin GPIO_Spare1_Pin LED_STATUS_SLAVE_2_Pin LED_STATUS_SLAVE_1_Pin */
-  GPIO_InitStruct.Pin = RF_RESET_Pin|GPIO_Spare1_Pin|LED_STATUS_SLAVE_2_Pin|LED_STATUS_SLAVE_1_Pin;
+  /*Configure GPIO pins : RF_RESET_Pin LED_STATUS_SLAVE_2_Pin LED_STATUS_SLAVE_1_Pin */
+  GPIO_InitStruct.Pin = RF_RESET_Pin|LED_STATUS_SLAVE_2_Pin|LED_STATUS_SLAVE_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -958,6 +967,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(DIO0_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SET_MODE_Pin */
+  GPIO_InitStruct.Pin = SET_MODE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(SET_MODE_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : GET_IRQ_Pin */
+  GPIO_InitStruct.Pin = GET_IRQ_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GET_IRQ_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LED_PA_Pin LED_PB_Pin LED_PC_Pin */
   GPIO_InitStruct.Pin = LED_PA_Pin|LED_PB_Pin|LED_PC_Pin;
@@ -970,6 +991,9 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -980,6 +1004,8 @@ static void MX_GPIO_Init(void)
 void Get_Offset(void)
 {  
   if(flag_get_zero == 0) return;
+	if(phaseS.phase_detected) return;
+	
   flag_get_zero = 0;
 
   uint32_t sumS = 0;

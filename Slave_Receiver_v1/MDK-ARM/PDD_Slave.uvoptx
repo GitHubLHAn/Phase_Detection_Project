@@ -238,11 +238,6 @@
         <Ww>
           <count>17</count>
           <WinNumber>1</WinNumber>
-          <ItemText>now_time,0x0A</ItemText>
-        </Ww>
-        <Ww>
-          <count>18</count>
-          <WinNumber>1</WinNumber>
           <ItemText>battery,0x0A</ItemText>
         </Ww>
       </WatchWindow1>

@@ -74,10 +74,10 @@ void Error_Handler(void);
 #define DIO0_EXTI_IRQn EXTI1_IRQn
 #define DETECT_ZC_PC_Pin GPIO_PIN_10
 #define DETECT_ZC_PC_GPIO_Port GPIOB
-#define GPIO_Spare1_Pin GPIO_PIN_15
-#define GPIO_Spare1_GPIO_Port GPIOB
-#define GPIO_Spare0_Pin GPIO_PIN_8
-#define GPIO_Spare0_GPIO_Port GPIOA
+#define GET_ZERO_Pin GPIO_PIN_15
+#define GET_ZERO_GPIO_Port GPIOB
+#define GEN_TRIGGER_Pin GPIO_PIN_8
+#define GEN_TRIGGER_GPIO_Port GPIOA
 #define UART_TX_Spare_Pin GPIO_PIN_9
 #define UART_TX_Spare_GPIO_Port GPIOA
 #define UART_RX_Spare_Pin GPIO_PIN_10

@@ -57,7 +57,7 @@
 
 
 
-#define MA_SIZE 5
+#define MA_SIZE_PHASE_ZC 5
 
 #define ZERO_PA 1984
 #define ZERO_PB 1984
@@ -69,11 +69,12 @@
 #define RANGE_GRID_H 20750
 
 #define TIME_DET_PHASE 100   // 2s
+#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
 #define TIME_SEND_CYCLE   2500000   // 2.5s
 
 typedef struct
 {
-    uint16_t buf[MA_SIZE];
+    uint16_t buf[MA_SIZE_PHASE_ZC];
     uint32_t sum;
     uint8_t index;
 } MA_Filter_t;
@@ -99,20 +100,31 @@ typedef enum
   BUZZER_TRIGGER_PIP = 3,
 }MODE_BUZZER_e;
 
+typedef enum
+{
+  WAIT_NEG = 1,
+  WAIT_ZC_UP = 2,
+  WAIT_POS = 3,
+  LOSS_GRID = 4,
+}MODE_DETECT_e;
+
 typedef struct {
     volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
     MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
     uint16_t zero_val;     // Giá trị ZERO_PX
 		volatile bool start_detect;
+    volatile bool phase_detected;
     volatile uint16_t p_cur;
     volatile uint16_t p_prev;
     volatile uint16_t cnt_detect;
     volatile uint32_t last_zc;
     volatile uint32_t now_zc;
     volatile uint32_t interval_zc;
-    volatile bool phase_detected;
     volatile bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
-} Phase_Data_t;
+
+    volatile MODE_DETECT_e mode_det;
+    volatile uint16_t cnt_det_loss_grid;
+  } Phase_Data_t;
 
 /* USER CODE END PD */
 
@@ -219,6 +231,7 @@ static void MX_TIM2_Init(void);
 void Get_Offset(void);
 void Handle_LED(void);
 void Handle_Buzzer(void);
+void Handle_LoRa_TX(void);
 void OFF_LED_STATUS(void);
 void ON_LED_STATUS_1(void);
 void ON_LED_STATUS_2(void);
@@ -250,94 +263,83 @@ void Phase_init(Phase_Data_t* p_data, volatile  uint16_t* adc_raw_ptr, uint16_t 
     p_data->interval_zc = 0;
     p_data->phase_detected = false;
     p_data->has_new_edge = false;
-
     MA_Init(&p_data->filter, zero_val);
+
+    p_data->mode_det = WAIT_NEG;
+    p_data->cnt_det_loss_grid = 0;
 }
 
 static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
 {
     phase->p_cur = MA_Update(&phase->filter, *(phase->adc_raw_ptr));
-	
-		if(phase->start_detect == false){
-			if(phase->p_cur < phase->zero_val - 200){
-				phase->start_detect = true;
-			}
-			else{
-				return;
-			}
-		}
 
-    uint32_t itv_lZC = now_time - phase->last_zc;
-
-    /* Rising Zero-Cross */
-    if (phase->p_prev <= phase->zero_val && phase->p_cur  >  phase->zero_val)
+    switch(phase->mode_det)
     {
-        /* First edge after startup or loss-grid */
-        if (phase->last_zc == 0U)
+      case WAIT_NEG:
+        if (phase->p_cur < phase->zero_val - 100)
         {
-            phase->last_zc = now_time;
+          if(phase->phase_detected == true){
+            phase->mode_det = WAIT_ZC_UP;
+          }else{
+            phase->mode_det = WAIT_POS;
+          }
         }
-        else
+        break;
+      case WAIT_POS:
+        if (phase->p_cur > phase->zero_val + 100)
         {
-						while(itv_lZC > RANGE_GRID_H){
-							itv_lZC -= CYCLE_GRID;
-						}
-            if ((itv_lZC >= RANGE_GRID_L) && (itv_lZC <= RANGE_GRID_H))
+          if(++phase->cnt_detect == TIME_DET_PHASE){
+            phase->phase_detected = true;
+						mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;   // only on MASTER
+          }
+          phase->mode_det = WAIT_NEG;
+        }
+        break;
+      case WAIT_ZC_UP: 
+			{
+        uint32_t itv_lZC = now_time - phase->last_zc;
+
+        /* Rising Zero-Cross */
+        if (phase->p_prev <= phase->zero_val && phase->p_cur>phase->zero_val)
+        {
+            /* First edge after startup or loss-grid */
+            if (phase->last_zc == 0U)
             {
-                phase->now_zc       = now_time;
-                phase->interval_zc  = itv_lZC;
-                
-                phase->has_new_edge = true;
-                if (phase->cnt_detect < TIME_DET_PHASE){
-                  if (++phase->cnt_detect == TIME_DET_PHASE){
-                    phase->phase_detected = true;
-                    mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
-										cnt_send_cmd = 0;			// start send cmd
-                  }
-                }  
-								phase->last_zc = now_time;
+                phase->last_zc = now_time;
             }
+            else
+            {
+                while(itv_lZC > RANGE_GRID_H){
+                  itv_lZC -= CYCLE_GRID;
+                }
+                if ((itv_lZC >= RANGE_GRID_L) && (itv_lZC <= RANGE_GRID_H))
+                {
+                  phase->now_zc       = now_time;
+                  phase->interval_zc  = itv_lZC;
+                    
+                  phase->has_new_edge = true;
+                  phase->last_zc = now_time;
+                  phase->cnt_det_loss_grid = 0;
+                }			
+            }
+            phase->mode_det = WAIT_NEG;
         }
+        phase->p_prev = phase->p_cur;
+        break;
+			}
+      case LOSS_GRID:
+        phase->phase_detected = false;
+        phase->cnt_detect  = 0;
+        phase->last_zc     = 0;
+        phase->now_zc = 0;
+        phase->mode_det = WAIT_NEG;
+        break;
     }
-    phase->p_prev = phase->p_cur;
+    
+    if(phase->phase_detected){
+      if(++phase->cnt_det_loss_grid == LOSS_GRID_TIMEOUT) phase->mode_det = LOSS_GRID;
+    }   
 }
-
-void Detect_loss_grid(void)
-{
-	if(cnt_det_loss_grid < 500)	return;			// every 20ms
-	cnt_det_loss_grid = 0;
-		
-	uint32_t now_time = GetTimeUs();
-  if(phaseA.phase_detected && now_time > phaseA.last_zc){
-			if((now_time - phaseA.last_zc) > 100000){		//100ms ~ 5 grid cycle
-					phaseA.phase_detected = false;
-					phaseA.cnt_detect  = 0;
-					phaseA.last_zc     = 0;
-					phaseA.now_zc = 0;
-					phaseA.start_detect = false;
-			}
-	}
-	if(phaseB.phase_detected && now_time > phaseB.last_zc){
-			;
-			if((now_time - phaseB.last_zc) > 100000){		//100ms ~ 5 grid cycle
-					phaseB.phase_detected = false;
-					phaseB.cnt_detect  = 0;
-					phaseB.last_zc     = 0;
-					phaseB.now_zc = 0;
-					phaseB.start_detect = false;
-			}
-	}
-	if(phaseC.phase_detected && now_time > phaseC.last_zc){
-			if((now_time - phaseC.last_zc) > 100000){		//100ms ~ 5 grid cycle
-					phaseC.phase_detected = false;
-					phaseC.cnt_detect  = 0;
-					phaseC.last_zc     = 0;
-					phaseC.now_zc = 0;
-					phaseC.start_detect = false;
-			}
-	}
-}
-
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -453,10 +455,12 @@ int main(void)
 	config_lora = LoRa_Config(&vLoRa);
 	
 	while(config_lora!=0x00C8){
-    HAL_Delay(100);
+		ON_LED_DEBUG(); 
     Lora_Init(&vLoRa, &hspi1, 912);
 	  LoRa_reset(&vLoRa);
     config_lora = LoRa_Config(&vLoRa);
+		OFF_LED_DEBUG();
+		HAL_Delay(15);
 	}
   LoRa_startReceiving(&vLoRa);
   // Config Lora ok
@@ -470,13 +474,13 @@ int main(void)
   Phase_init(&phaseC, &adc_raw[2], ZERO_PC);
 
   BUZZER_ON(); HAL_Delay(30);
-	BUZZER_OFF(); HAL_Delay(300);
+	BUZZER_OFF(); HAL_Delay(100);
   OFF_LED_PA();
 	BUZZER_ON(); HAL_Delay(30);
-	BUZZER_OFF(); HAL_Delay(300);
+	BUZZER_OFF(); HAL_Delay(100);
   OFF_LED_PB();
 	BUZZER_ON(); HAL_Delay(30);
-	BUZZER_OFF(); HAL_Delay(300);
+	BUZZER_OFF(); HAL_Delay(100);
   OFF_LED_PC();
 
  HAL_TIM_Base_Start_IT(&htim1);
@@ -501,25 +505,9 @@ int main(void)
     }
 
     // Send Lora data ------------------------------------------------------------------
-    if(flag_send_lora)
-    {			
-      flag_send_lora = false;
-
-      TX_Lora_buff[0] = 0xAA;
-      TX_Lora_buff[1] = 0;
-      TX_Lora_buff[2] = (delta_pAB%CYCLE_GRID)/100;
-      TX_Lora_buff[3] = (delta_pAC%CYCLE_GRID)/100;
-      TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
-										
-			send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
-
-			if(send_ok == 1){
-				HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
-				cnt_sendOK++;
-        mode_led_status = MODE_SET_FLASH_1;
-				//mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
-			}
-    }
+    
+		
+		Handle_LoRa_TX();
 
     // Get offset for ADC measurement
     Get_Offset();
@@ -529,8 +517,7 @@ int main(void)
 
     // Handle Buzzer
     Handle_Buzzer();
-
-		Detect_loss_grid();	
+		
   }
   /* USER CODE END 3 */
 }
@@ -905,11 +892,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, NSS_Pin|GPIO_Spare0_Pin|MCU_BUZZER_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, NSS_Pin|GEN_TRIGGER_Pin|MCU_BUZZER_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, RF_RESET_Pin|GPIO_Spare1_Pin|LED_PA_Pin|LED_PB_Pin
-                          |LED_PC_Pin|LED_STATUS_MASTER_2_Pin|LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, RF_RESET_Pin|LED_PA_Pin|LED_PB_Pin|LED_PC_Pin
+                          |LED_STATUS_MASTER_2_Pin|LED_STATUS_MASTER_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : LED_DEBUG_ON_BOARD_Pin */
   GPIO_InitStruct.Pin = LED_DEBUG_ON_BOARD_Pin;
@@ -918,17 +905,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_DEBUG_ON_BOARD_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : NSS_Pin GPIO_Spare0_Pin MCU_BUZZER_Pin */
-  GPIO_InitStruct.Pin = NSS_Pin|GPIO_Spare0_Pin|MCU_BUZZER_Pin;
+  /*Configure GPIO pins : NSS_Pin GEN_TRIGGER_Pin MCU_BUZZER_Pin */
+  GPIO_InitStruct.Pin = NSS_Pin|GEN_TRIGGER_Pin|MCU_BUZZER_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : RF_RESET_Pin GPIO_Spare1_Pin LED_PA_Pin LED_PB_Pin
-                           LED_PC_Pin LED_STATUS_MASTER_2_Pin LED_STATUS_MASTER_1_Pin */
-  GPIO_InitStruct.Pin = RF_RESET_Pin|GPIO_Spare1_Pin|LED_PA_Pin|LED_PB_Pin
-                          |LED_PC_Pin|LED_STATUS_MASTER_2_Pin|LED_STATUS_MASTER_1_Pin;
+  /*Configure GPIO pins : RF_RESET_Pin LED_PA_Pin LED_PB_Pin LED_PC_Pin
+                           LED_STATUS_MASTER_2_Pin LED_STATUS_MASTER_1_Pin */
+  GPIO_InitStruct.Pin = RF_RESET_Pin|LED_PA_Pin|LED_PB_Pin|LED_PC_Pin
+                          |LED_STATUS_MASTER_2_Pin|LED_STATUS_MASTER_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -939,6 +926,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(DIO0_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : GET_ZERO_Pin */
+  GPIO_InitStruct.Pin = GET_ZERO_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GET_ZERO_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
@@ -955,8 +948,8 @@ static void MX_GPIO_Init(void)
 void Get_Offset(void)
 {  
   if(flag_get_zero == 0) return;
+	flag_get_zero = 0;
   
-
   uint32_t sumA = 0;
   uint32_t sumB = 0;
   uint32_t sumC = 0;
@@ -972,7 +965,7 @@ void Get_Offset(void)
   offset_pA = sumA / 1000;
   offset_pB = sumB / 1000;
   offset_pC = sumC / 1000;
-	flag_get_zero = 0;
+	
 	mode_buzzer_status = BUZZER_ON;
 }
 
@@ -1060,7 +1053,7 @@ void Handle_Buzzer(void)
       mode_buzzer_status = BUZZER_TRIGGER_PIP;
       break;
     case BUZZER_TRIGGER_PIP:
-      if(cnt_handle_buzzer >= 5000)					// 250ms
+      if(cnt_handle_buzzer >= 3000)					// 3000*0.00005
       {
         mode_buzzer_status = BUZZER_OFF;
       }
@@ -1070,12 +1063,33 @@ void Handle_Buzzer(void)
   }
 }
 
+void Handle_LoRa_TX(void)
+{
+	if(!flag_send_lora) return;
+	flag_send_lora = false;
+
+	TX_Lora_buff[0] = 0xAA;
+	TX_Lora_buff[1] = 0;
+	TX_Lora_buff[2] = (delta_pAB%CYCLE_GRID)/100;
+	TX_Lora_buff[3] = (delta_pAC%CYCLE_GRID)/100;
+	TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
+								
+	send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
+
+	if(send_ok == 1){
+		HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
+		cnt_sendOK++;
+		mode_led_status = MODE_SET_FLASH_1;
+		//mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
+	}
+}
+
 void MA_Init(MA_Filter_t *f, uint16_t init_value)
 {
     f->sum = 0;
     f->index = 0;
 
-    for(int i=0; i<MA_SIZE; i++)
+    for(int i=0; i<MA_SIZE_PHASE_ZC; i++)
     {
         f->buf[i] = init_value;
         f->sum += init_value;
@@ -1088,9 +1102,9 @@ uint16_t MA_Update(MA_Filter_t *f, uint16_t sample)
     f->buf[f->index] = sample;
     f->sum += sample;
     f->index++;
-    if(f->index >= MA_SIZE)
+    if(f->index >= MA_SIZE_PHASE_ZC)
         f->index = 0;
-    return f->sum / MA_SIZE;
+    return f->sum / MA_SIZE_PHASE_ZC;
 }
 
 /* USER CODE END 4 */
