@@ -28,10 +28,51 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+#include "flash.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
+#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
+
+#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
+#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
+#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
+#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
+
+// Buzzer active
+#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
+#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
+
+#define MA_SIZE_PHASE_ZC 5
+
+//#define ZERO_PA 1984
+//#define ZERO_PB 1984
+//#define ZERO_PC 1978
+
+#define CYCLE_GRID 20000
+
+#define RANGE_GRID_L 19000        // 5%
+#define RANGE_GRID_H 21000
+
+#define TIME_DET_PHASE 100   // 2s
+#define LOSS_GRID_TIMEOUT 2500   //   100ms/0.1ms = 1000
+#define TIME_SEND_CYCLE   2500000   // 2.5s
+
+
 typedef struct
 {
     uint16_t buf[MA_SIZE_PHASE_ZC];
@@ -84,43 +125,6 @@ typedef struct {
   volatile MODE_DETECT_e mode_det;
   volatile uint16_t cnt_det_loss_grid;
 } Phase_Data_t;
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
-#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
-#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
-
-#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
-#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
-#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
-#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
-
-// Buzzer active
-#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
-#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
-
-#define MA_SIZE_PHASE_ZC 5
-
-#define ZERO_PA 1984
-#define ZERO_PB 1984
-#define ZERO_PC 1978
-
-#define CYCLE_GRID 20000
-
-#define RANGE_GRID_L 19000        // 5%
-#define RANGE_GRID_H 21000
-
-#define TIME_DET_PHASE 100   // 2s
-#define LOSS_GRID_TIMEOUT 2500   //   100ms/0.1ms = 1000
-#define TIME_SEND_CYCLE   2500000   // 2.5s
 
 /* USER CODE END PD */
 
@@ -462,12 +466,14 @@ int main(void)
   // Config Lora ok
   OFF_LED_DEBUG();
   OFF_LED_STATUS();
+	
+	Load_Infor_Func();
+	
+	Phase_init(&phaseA, &adc_raw[0], vInfor_cache.zero_pA);
+  Phase_init(&phaseB, &adc_raw[1], vInfor_cache.zero_pB);
+  Phase_init(&phaseC, &adc_raw[2], vInfor_cache.zero_pC);
 
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw, 3);
-
-  Phase_init(&phaseA, &adc_raw[0], ZERO_PA);
-  Phase_init(&phaseB, &adc_raw[1], ZERO_PB);
-  Phase_init(&phaseC, &adc_raw[2], ZERO_PC);
 
   BUZZER_ON(); HAL_Delay(30);
 	BUZZER_OFF(); HAL_Delay(100);
@@ -930,11 +936,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(DIO0_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : GET_ZERO_Pin */
-  GPIO_InitStruct.Pin = GET_ZERO_Pin;
+  /*Configure GPIO pin : SET_MODE_Pin */
+  GPIO_InitStruct.Pin = SET_MODE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GET_ZERO_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(SET_MODE_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
@@ -969,9 +975,9 @@ void Get_Offset(void)
   offset_pB = sumB / 1000;
   offset_pC = sumC / 1000;
 	
-  vInfor_cache.offset_pA = offset_pA;
-  vInfor_cache.offset_pB = offset_pB;
-  vInfor_cache.offset_pC = offset_pC
+  vInfor_cache.zero_pA = offset_pA;
+  vInfor_cache.zero_pB = offset_pB;
+  vInfor_cache.zero_pC = offset_pC;
   if(Update_NEW_Infor() == UPDATE_SUCCESS){
     mode_buzzer = BUZZER_ON;
   }else{

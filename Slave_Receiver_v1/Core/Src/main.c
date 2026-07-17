@@ -36,6 +36,62 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+
+// #define DEBUG
+
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
+#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
+
+#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
+#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
+#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
+#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
+
+// Buzzer active
+#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
+#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
+
+#define MA_SIZE_MAX     100
+#define MA_SIZE_PHASE_ZC  5
+#define MA_SIZE_BAT       8
+
+#define MAX_SIZE_LORA 12
+
+// #define ZERO_PS 1978
+
+#define CYCLE_GRID 20000
+
+#define RANGE_GRID_L 19000
+#define RANGE_GRID_H 21000
+
+#define TIME_DET_PHASE 50   //      50*20ms = 1s
+#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
+
+#define pA_L   0
+#define pA_H   6667
+
+#define pB_L   13333
+#define pB_H   20000
+
+#define pC_L   6667
+#define pC_H   13333
+
+#define BATTERY_LOW   9.6
+#define BATTERY_FULL  12.0
+#define V_CHARGER_ON 0.2
+#define V_CHARGER_OFF 0.2
+
 typedef struct
 {
     uint16_t buf[MA_SIZE_MAX];
@@ -113,61 +169,6 @@ typedef struct {
     uint32_t interval_time;
     uint32_t now_time;
 }Battery_Data_t;
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-// #define DEBUG
-
-#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
-#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
-#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
-
-#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
-#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
-#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
-#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
-
-// Buzzer active
-#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
-#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
-
-#define MA_SIZE_MAX     100
-#define MA_SIZE_PHASE_ZC  5
-#define MA_SIZE_BAT       8
-
-#define MAX_SIZE_LORA 12
-
-// #define ZERO_PS 1978
-
-#define CYCLE_GRID 20000
-
-#define RANGE_GRID_L 19000
-#define RANGE_GRID_H 21000
-
-#define TIME_DET_PHASE 50   //      50*20ms = 1s
-#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
-
-#define pA_L   0
-#define pA_H   6667
-
-#define pB_L   13333
-#define pB_H   20000
-
-#define pC_L   6667
-#define pC_H   13333
-
-#define BATTERY_LOW   9.6
-#define BATTERY_FULL  12.0
-#define V_CHARGER_ON 0.2
-#define V_CHARGER_OFF 0.2
-
 
 /* USER CODE END PD */
 
@@ -311,7 +312,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
     if(phase->phase_detected){
       if(++phase->cnt_det_loss_grid >= LOSS_GRID_TIMEOUT){
         phase->cnt_det_loss_grid = 0;
-        mode_det = LOSS_GRID;
+        phase->mode_det = LOSS_GRID;
       }
     } 
 
@@ -435,9 +436,6 @@ void Battery_init(Battery_Data_t* pBat, volatile  uint16_t* adc_raw_ptr){
     pBat->cnt_full_bat = 0;
     pBat->flag_track_charge_full = false;
     MA_Init(&pBat->filter, 0, MA_SIZE_BAT);
-
-    p_data->mode_det = WAIT_NEG;
-    p_data->cnt_det_loss_grid = 0;
 }
 
 /* USER CODE END PFP */
@@ -508,12 +506,15 @@ int main(void)
   // Config Lora ok
   OFF_LED_DEBUG();
   OFF_LED_STATUS();
+	
+	Load_Infor_Func();
+	
+	Phase_init(&phaseS, &adc_raw[0], vInfor_cache.zero_pS);
+
+  Battery_init(&battery, &adc_raw[1]);
 
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc_raw, 2);
 
-  Phase_init(&phaseS, &adc_raw[0], ZERO_PS);
-
-  Battery_init(&battery, &adc_raw[1]);
 
 	BUZZER_ON(); HAL_Delay(15);
 	BUZZER_OFF(); HAL_Delay(100);
@@ -535,6 +536,16 @@ int main(void)
 			break;
 		}
 	}
+	
+	// Battery meas stable
+	uint8_t cnt_try = 50;
+	while(--cnt_try >0 ){
+		HAL_Delay(1);
+		battery.adc_filterd = MA_Update(&battery.filter, *(battery.adc_raw_ptr));
+    battery.vBat_filtered = ((float)battery.adc_filterd / 4095.0f) * 3.3f * 4.9f;     // tinh dien ap theo "pBat->adc_filterd"
+		battery.vBat_last = battery.vBat_filtered;
+	}
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -547,11 +558,13 @@ int main(void)
 		
 		tick_slave++;
 		
+#ifdef DEBUG
 		if(cnt_timetick >= cycle_timetick)
     {
       cnt_timetick = 0;
 			TOGGLE_LED_DEBUG();
     }
+#endif
 
 		// Handle receive packet Lora
 		Handle_LoRa_RX();
@@ -1031,7 +1044,7 @@ void Get_Offset(void)
 
   offset_pS = sumS/1000;
 
-  vInfor_cache.offset_pS = offset_pS;
+  vInfor_cache.zero_pS = offset_pS;
   if(Update_NEW_Infor() == UPDATE_SUCCESS){
     mode_buzzer = BUZZER_ON;
   }else{

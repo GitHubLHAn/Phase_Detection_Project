@@ -11,7 +11,6 @@
 #include "main.h"
 
 #include <string.h>
-#include "user.h"
 
 /*DEFINE*/
 	#define ADDRESS_DATA_STORAGE 0x800FC00

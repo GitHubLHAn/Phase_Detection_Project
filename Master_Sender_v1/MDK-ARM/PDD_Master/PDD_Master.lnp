@@ -1,6 +1,7 @@
 --cpu Cortex-M3
 "pdd_master\startup_stm32f103xb.o"
 "pdd_master\lora.o"
+"pdd_master\flash.o"
 "pdd_master\main.o"
 "pdd_master\stm32f1xx_it.o"
 "pdd_master\stm32f1xx_hal_msp.o"

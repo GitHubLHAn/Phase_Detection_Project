@@ -32,6 +32,7 @@ pdd_slave\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h
 pdd_slave\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h
 pdd_slave\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h
 pdd_slave\main.o: ../Core/Inc/LoRa.h
+pdd_slave\main.o: ../Core/Inc/flash.h
 pdd_slave\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
 pdd_slave\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
 pdd_slave\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h

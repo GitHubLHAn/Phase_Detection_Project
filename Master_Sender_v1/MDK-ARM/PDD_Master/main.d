@@ -35,3 +35,4 @@ pdd_master\main.o: ../Core/Inc/LoRa.h
 pdd_master\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
 pdd_master\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdio.h
 pdd_master\main.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h
+pdd_master\main.o: ../Core/Inc/flash.h

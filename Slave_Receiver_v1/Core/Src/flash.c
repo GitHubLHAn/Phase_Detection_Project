@@ -9,19 +9,20 @@
 
 /**********************************************************************************************************************************/
 /*******DECLARE VARIABLE********/
-	chute_info_t vInfor_default = {
-        .pw = PASSWORD_UPDATE;
-        .id = 0;
-        .zero_pA = 2000;
-        .zero_pB = 2000;
-        .zero_pC = 2000;
-        .zero_pD = 2000;
+	info_t vInfor_default = {
+        .pw = PASSWORD_UPDATE,
+        .id = 0,
+        .zero_pA = 2000,
+        .zero_pB = 2000,
+        .zero_pC = 2000,
+        .zero_pS = 2000,
     };
-	chute_info_t vInfor_cache;	
+	info_t vInfor_cache;	
 
 /**********************************************************************************************************************************/
 /*******FUNCTION********/
-
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
 //================================================================================*/
 // Flash erase a sector
 //================================================================================*/
@@ -92,11 +93,9 @@ void Flash_Read_Struct(uint32_t address, info_t *pDATA)
 //================================================================================*/
 
 void Load_Infor_Func(void)
-{
-    Init_Chute_Infor(&vInfor_default);
-    
+{    
     Flash_Read_Struct(ADDRESS_DATA_STORAGE, &vInfor_cache);
-    if(vChute_Infor_cache.pw == PASSWORD_UPDATE)
+    if(vInfor_cache.pw == PASSWORD_UPDATE)
     {
         //data ok
         return;
@@ -114,7 +113,7 @@ void Load_Infor_Func(void)
         OFF_LED_DEBUG(); 	HAL_Delay(500);
         ON_LED_DEBUG(); 	HAL_Delay(100);
         OFF_LED_DEBUG(); 	HAL_Delay(500);
-        NVIC_System_Reset();
+        NVIC_SystemReset();
     }
 }
 	
@@ -125,30 +124,29 @@ void Load_Infor_Func(void)
 uint8_t Update_NEW_Infor(void)
 {
     uint8_t result = UPDATE_ERROR;
-
-    __disable_irq();
+	
+		info_t	vInfor_temp;
+		memcpy(&vInfor_temp, &vInfor_cache, sizeof(info_t));
 
     /*Clear Information in flash*/
     Flash_Erase(ADDRESS_DATA_STORAGE);
-    HAL_Delay(10);
+    HAL_Delay(1);
     
     /*Write struct to Flash*/
     Flash_Write_Struct(ADDRESS_DATA_STORAGE, vInfor_cache);
-    HAL_Delay(10);
+    HAL_Delay(1);
     /*Read and check again*/
     Flash_Read_Struct(ADDRESS_DATA_STORAGE, &vInfor_cache);
-    HAL_Delay(10);
+    HAL_Delay(1);
     
-    if(memcmp(vChute_Infor_cache.identification_arr, Get_New_ID_arr, NUM_IDENTIFICATION) == 0){
+    if(memcmp(&vInfor_cache, &vInfor_temp, sizeof(info_t)) == 0){
         result = UPDATE_SUCCESS;
     }
     else{
         Flash_Erase(ADDRESS_DATA_STORAGE);
         HAL_Delay(10);
     }
-
-    _enable_irq();
-
+		
     return result;
 }
 	
