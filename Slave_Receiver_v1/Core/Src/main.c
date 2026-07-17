@@ -23,6 +23,9 @@
 /* USER CODE BEGIN Includes */
 
 #include "LoRa.h"
+
+#include "flash.h"
+
 #include <string.h>
 
 #include <stdio.h>
@@ -33,59 +36,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
-#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
-#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
-
-#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
-#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
-#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
-#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
-
-// Buzzer active
-#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
-#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
-
-#define MA_SIZE_MAX 100
-#define MA_SIZE_PHASE_ZC  5
-#define MA_SIZE_BAT       8
-
-#define MAX_SIZE_LORA 12
-
-#define ZERO_PS 1978
-
-#define CYCLE_GRID 20000
-
-#define RANGE_GRID_L 19500
-#define RANGE_GRID_H 20500
-
-#define TIME_DET_PHASE 50   //      50*20ms = 1s
-#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
-
-
-#define pA_L   0
-#define pA_H   6667
-
-#define pB_L   13333
-#define pB_H   20000
-
-#define pC_L   6667
-#define pC_H   13333
-
-#define BATTERY_LOW   9.3
-#define BATTERY_FULL  10.5
-
-
 typedef struct
 {
     uint16_t buf[MA_SIZE_MAX];
@@ -134,7 +84,6 @@ typedef struct {
     volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
     MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
     uint16_t zero_val;     // Giá trị ZERO_PX
-		volatile bool start_detect;
     volatile bool phase_detected;
     volatile uint16_t p_cur;
     volatile uint16_t p_prev;
@@ -163,6 +112,60 @@ typedef struct {
     uint32_t interval_time;
     uint32_t now_time;
 }Battery_Data_t;
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+
+// #define DEBUG
+
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
+#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
+
+#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
+#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
+#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
+#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
+
+// Buzzer active
+#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
+#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
+
+#define MA_SIZE_MAX     100
+#define MA_SIZE_PHASE_ZC  5
+#define MA_SIZE_BAT       8
+
+#define MAX_SIZE_LORA 12
+
+// #define ZERO_PS 1978
+
+#define CYCLE_GRID 20000
+
+#define RANGE_GRID_L 19500
+#define RANGE_GRID_H 20500
+
+#define TIME_DET_PHASE 50   //      50*20ms = 1s
+#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
+
+#define pA_L   0
+#define pA_H   6667
+
+#define pB_L   13333
+#define pB_H   20000
+
+#define pC_L   6667
+#define pC_H   13333
+
+#define BATTERY_LOW   9.5
+#define BATTERY_FULL  12.0
+
+
 
 /* USER CODE END PD */
 
@@ -285,7 +288,6 @@ uint32_t GetTimeUs(){
 void Phase_init(Phase_Data_t* p_data, volatile  uint16_t* adc_raw_ptr, uint16_t zero_val){
     p_data->adc_raw_ptr = adc_raw_ptr;
     p_data->zero_val = zero_val;
-		p_data->start_detect = false;
     p_data->p_cur = 0;
     p_data->p_prev = 0;
     p_data->cnt_detect = 0;
@@ -378,7 +380,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     cnt_timetick++;
     cnt_handle_led++;
     cnt_handle_buzzer++;
-		
     
     if(++flag_cnt_50us >= 2)    // 50us or 100us
     {
@@ -405,10 +406,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     num_RX_irq_LoRa++;
     flag_Lora_Rx = true;	 
   }
-//		if(GPIO_Pin == GPIO_PIN_10)
-//		{
-//			tx_time = GetTimeUs(); 
-//		}
+#ifdef DEBUG
+  if(GPIO_Pin == GET_IRQ_Pin)
+  {
+    tx_time = GetTimeUs(); 
+  }
+#endif
 }
 
 void Battery_init(Battery_Data_t* pBat, volatile  uint16_t* adc_raw_ptr){
@@ -555,6 +558,7 @@ int main(void)
 		// Get offset for ADC measurement
     Get_Offset();
 
+#ifdef DEBUG
     // For debug
     if(flag_tx_log == 1){
 			flag_tx_log = 0;
@@ -566,6 +570,7 @@ int main(void)
 
 			//HAL_UART_Transmit_DMA(&huart1, (uint8_t*)uart_tx_log, strlen(uart_tx_log));
 		}
+#endif
 
   }
   /* USER CODE END 3 */
@@ -1004,8 +1009,6 @@ static void MX_GPIO_Init(void)
 void Get_Offset(void)
 {  
   if(flag_get_zero == 0) return;
-	if(phaseS.phase_detected) return;
-	
   flag_get_zero = 0;
 
   uint32_t sumS = 0;
@@ -1017,7 +1020,18 @@ void Get_Offset(void)
   }
 
   offset_pS = sumS/1000;
-  mode_buzzer = BUZZER_ON;
+
+  vInfor_cache.offset_pS = offset_pS;
+  if(Update_NEW_Infor() == UPDATE_SUCCESS){
+    mode_buzzer = BUZZER_ON;
+  }else{
+    while(1){
+      ON_LED_PA();ON_LED_PB();ON_LED_PC();BUZZER_ON();
+      HAL_Delay(100);
+      OFF_LED_PA();OFF_LED_PB();OFF_LED_PC();BUZZER_OFF();
+      HAL_Delay(100);
+    }
+  }
 }
 
 void OFF_LED_STATUS(void)
@@ -1041,13 +1055,8 @@ void ON_LED_STATUS_R(void)
 void Handle_LED(void)
 {
   if(!phaseS.phase_detected){
-    point_pA = 0;
-    point_pB = 0;
-    point_pC = 0;
-
-    OFF_LED_PA();
-    OFF_LED_PB();
-    OFF_LED_PC();
+    point_pA = 0; point_pB = 0; point_pC = 0;
+    OFF_LED_PA(); OFF_LED_PB(); OFF_LED_PC();
   }
 
   switch(mode_led)
@@ -1110,7 +1119,7 @@ void Handle_Buzzer(void)
       mode_buzzer = BUZZER_TRIGGER_PIP;
       break;
     case BUZZER_TRIGGER_PIP:
-      if(cnt_handle_buzzer >= 2000)					// 250ms
+      if(cnt_handle_buzzer >= 2000)					// 2000*0.00005
       {
         mode_buzzer = BUZZER_OFF;
       }
@@ -1137,7 +1146,10 @@ void Handle_LoRa_RX(void)
 			{
 				deltaT_mod = (rx_time - phaseS.last_zc)%20000;
 				deltaT_div = (rx_time - phaseS.last_zc)/20000;
+
+#ifdef DEBUG
 				latency = rx_time - tx_time;
+#endif
 			
 				delta_pA = RX_LoRa_buff[1]*100;
 				delta_pB = RX_LoRa_buff[2]*100;

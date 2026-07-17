@@ -32,46 +32,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
-#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
-#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
-
-#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
-#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
-#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
-
-#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
-#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
-
-// Buzzer active
-#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
-#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
-
-
-
-#define MA_SIZE_PHASE_ZC 5
-
-#define ZERO_PA 1984
-#define ZERO_PB 1984
-#define ZERO_PC 1978
-
-#define CYCLE_GRID 20000
-
-#define RANGE_GRID_L 19750
-#define RANGE_GRID_H 20750
-
-#define TIME_DET_PHASE 100   // 2s
-#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
-#define TIME_SEND_CYCLE   2500000   // 2.5s
-
 typedef struct
 {
     uint16_t buf[MA_SIZE_PHASE_ZC];
@@ -109,22 +69,58 @@ typedef enum
 }MODE_DETECT_e;
 
 typedef struct {
-    volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
-    MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
-    uint16_t zero_val;     // Giá trị ZERO_PX
-		volatile bool start_detect;
-    volatile bool phase_detected;
-    volatile uint16_t p_cur;
-    volatile uint16_t p_prev;
-    volatile uint16_t cnt_detect;
-    volatile uint32_t last_zc;
-    volatile uint32_t now_zc;
-    volatile uint32_t interval_zc;
-    volatile bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
+  volatile uint16_t* adc_raw_ptr;       // Trỏ tới adc_raw[x]
+  MA_Filter_t filter;         // Trỏ tới bộ lọc tương ứng
+  uint16_t zero_val;     // Giá trị ZERO_PX
+  volatile bool phase_detected;
+  volatile uint16_t p_cur;
+  volatile uint16_t p_prev;
+  volatile uint16_t cnt_detect;
+  volatile uint32_t last_zc;
+  volatile uint32_t now_zc;
+  volatile uint32_t interval_zc;
+  volatile bool has_new_edge;          // Cờ báo hiệu có cạnh lên mới cho Main xử lý
 
-    volatile MODE_DETECT_e mode_det;
-    volatile uint16_t cnt_det_loss_grid;
-  } Phase_Data_t;
+  volatile MODE_DETECT_e mode_det;
+  volatile uint16_t cnt_det_loss_grid;
+} Phase_Data_t;
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+
+#define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
+#define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
+#define TOGGLE_LED_DEBUG( )	HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin)
+
+#define ON_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_SET);
+#define OFF_LED_PA( )	HAL_GPIO_WritePin(LED_PA_GPIO_Port, LED_PA_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_SET);
+#define OFF_LED_PB( )	HAL_GPIO_WritePin(LED_PB_GPIO_Port, LED_PB_Pin, GPIO_PIN_RESET);
+
+#define ON_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_SET);
+#define OFF_LED_PC( )	HAL_GPIO_WritePin(LED_PC_GPIO_Port, LED_PC_Pin, GPIO_PIN_RESET);
+
+// Buzzer active
+#define BUZZER_ON()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_SET);
+#define BUZZER_OFF()  HAL_GPIO_WritePin(MCU_BUZZER_GPIO_Port, MCU_BUZZER_Pin, GPIO_PIN_RESET);
+
+#define MA_SIZE_PHASE_ZC 5
+
+#define ZERO_PA 1984
+#define ZERO_PB 1984
+#define ZERO_PC 1978
+
+#define CYCLE_GRID 20000
+
+#define RANGE_GRID_L 19750
+#define RANGE_GRID_H 20750
+
+#define TIME_DET_PHASE 100   // 2s
+#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
+#define TIME_SEND_CYCLE   2500000   // 2.5s
 
 /* USER CODE END PD */
 
@@ -160,11 +156,11 @@ volatile uint8_t flag_cnt_50us = 0;
 volatile bool flag_enable_zc = false;
 
 // LED
-volatile MODE_LED_e mode_led_status = MODE_OFF;
+volatile MODE_LED_e mode_led = MODE_OFF;
 volatile uint16_t cnt_handle_led = 0;
 
 //BUZZER PASSIVE
-volatile MODE_BUZZER_e mode_buzzer_status = BUZZER_OFF;
+volatile MODE_BUZZER_e mode_buzzer = BUZZER_OFF;
 volatile uint16_t cnt_handle_buzzer = 0;
 
 //LoRa variables
@@ -194,7 +190,6 @@ uint8_t flag_get_zero = 0;
 uint16_t offset_pA = 0;
 uint16_t offset_pB = 0;
 uint16_t offset_pC = 0;
-
 
 // For logging
 uint32_t stt = 0;
@@ -254,7 +249,6 @@ uint32_t GetTimeUs(){
 void Phase_init(Phase_Data_t* p_data, volatile  uint16_t* adc_raw_ptr, uint16_t zero_val){
     p_data->adc_raw_ptr = adc_raw_ptr;
     p_data->zero_val = zero_val;
-		p_data->start_detect = false;
     p_data->p_cur = 0;
     p_data->p_prev = 0;
     p_data->cnt_detect = 0;
@@ -290,7 +284,7 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
         {
           if(++phase->cnt_detect == TIME_DET_PHASE){
             phase->phase_detected = true;
-						mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;   // only on MASTER
+						mode_buzzer = BUZZER_SET_TRIGGER_PIP;   // only on MASTER
           }
           phase->mode_det = WAIT_NEG;
         }
@@ -483,8 +477,17 @@ int main(void)
 	BUZZER_OFF(); HAL_Delay(100);
   OFF_LED_PC();
 
- HAL_TIM_Base_Start_IT(&htim1);
+  HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_Base_Start_IT(&htim3);
+
+  uint16_t cnt_get_zero = 0;
+	while(HAL_GPIO_ReadPin(SET_MODE_GPIO_Port, SET_MODE_Pin) == GPIO_PIN_RESET){
+		if(++cnt_get_zero == 3000){
+			flag_get_zero = true;
+			break;
+		}
+	}
+  HAL_GPIO_WritePin(GEN_TRIGGER_GPIO_Port, GEN_TRIGGER_Pin, GPIO_PIN_RESET);
 
   /* USER CODE END 2 */
 
@@ -505,18 +508,16 @@ int main(void)
     }
 
     // Send Lora data ------------------------------------------------------------------
-    
-		
 		Handle_LoRa_TX();
-
-    // Get offset for ADC measurement
-    Get_Offset();
 
     // Handle LED status
     Handle_LED();
 
     // Handle Buzzer
     Handle_Buzzer();
+
+    // Get offset for ADC measurement
+    Get_Offset();
 		
   }
   /* USER CODE END 3 */
@@ -966,7 +967,19 @@ void Get_Offset(void)
   offset_pB = sumB / 1000;
   offset_pC = sumC / 1000;
 	
-	mode_buzzer_status = BUZZER_ON;
+  vInfor_cache.offset_pA = offset_pA;
+  vInfor_cache.offset_pB = offset_pB;
+  vInfor_cache.offset_pC = offset_pC
+  if(Update_NEW_Infor() == UPDATE_SUCCESS){
+    mode_buzzer = BUZZER_ON;
+  }else{
+    while(1){
+      ON_LED_PA();ON_LED_PB();ON_LED_PC();BUZZER_ON();
+      HAL_Delay(100);
+      OFF_LED_PA();OFF_LED_PB();OFF_LED_PC();BUZZER_OFF();
+      HAL_Delay(100);
+    }
+  }
 }
 
 void OFF_LED_STATUS(void)
@@ -998,7 +1011,7 @@ void Handle_LED(void)
 	if(phaseC.phase_detected){ON_LED_PC();}
 	else{OFF_LED_PC();}	
 
-  switch(mode_led_status)
+  switch(mode_led)
   {
     case MODE_OFF:
       OFF_LED_STATUS();
@@ -1012,23 +1025,23 @@ void Handle_LED(void)
     case MODE_SET_FLASH_1:
       cnt_handle_led = 0;
       ON_LED_STATUS_1();
-      mode_led_status = MODE_FLASH_1;
+      mode_led = MODE_FLASH_1;
       break;
     case MODE_FLASH_1:
       if(cnt_handle_led >= 600){			// 30ms
         cnt_handle_led = 0;
-        mode_led_status = MODE_OFF;      
+        mode_led = MODE_OFF;      
       }
       break;
     case MODE_SET_FLASH_2:
       cnt_handle_led = 0;
       ON_LED_STATUS_2();
-      mode_led_status = MODE_FLASH_2;
+      mode_led = MODE_FLASH_2;
       break;
     case MODE_FLASH_2:
       if(cnt_handle_led >= 600){			// 30ms
         cnt_handle_led = 0;
-        mode_led_status = MODE_OFF;      
+        mode_led = MODE_OFF;      
       }
       break;
     default:
@@ -1038,7 +1051,7 @@ void Handle_LED(void)
 
 void Handle_Buzzer(void)
 {
-  switch(mode_buzzer_status)
+  switch(mode_buzzer)
   {
     case BUZZER_OFF:
       BUZZER_OFF();
@@ -1050,12 +1063,12 @@ void Handle_Buzzer(void)
       // Initialize pip mode
       cnt_handle_buzzer = 0;
 			BUZZER_ON();
-      mode_buzzer_status = BUZZER_TRIGGER_PIP;
+      mode_buzzer = BUZZER_TRIGGER_PIP;
       break;
     case BUZZER_TRIGGER_PIP:
       if(cnt_handle_buzzer >= 3000)					// 3000*0.00005
       {
-        mode_buzzer_status = BUZZER_OFF;
+        mode_buzzer = BUZZER_OFF;
       }
       break;
     default:
@@ -1074,13 +1087,15 @@ void Handle_LoRa_TX(void)
 	TX_Lora_buff[3] = (delta_pAC%CYCLE_GRID)/100;
 	TX_Lora_buff[4] = TX_Lora_buff[0] + TX_Lora_buff[1] + TX_Lora_buff[2] + TX_Lora_buff[3];
 								
+  HAL_GPIO_WritePin(GEN_TRIGGER_GPIO_Port, GEN_TRIGGER_Pin, GPIO_PIN_SET);
 	send_ok = LoRa_transmit(&vLoRa, (uint8_t*)TX_Lora_buff, 5, 10000000);
+  HAL_GPIO_WritePin(GEN_TRIGGER_GPIO_Port, GEN_TRIGGER_Pin, GPIO_PIN_RESET);
 
 	if(send_ok == 1){
 		HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
 		cnt_sendOK++;
-		mode_led_status = MODE_SET_FLASH_1;
-		//mode_buzzer_status = BUZZER_SET_TRIGGER_PIP;
+		mode_led = MODE_SET_FLASH_1;
+		//mode_buzzer = BUZZER_SET_TRIGGER_PIP;
 	}
 }
 
