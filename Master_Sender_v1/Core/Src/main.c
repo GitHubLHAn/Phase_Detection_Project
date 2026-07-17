@@ -115,11 +115,11 @@ typedef struct {
 
 #define CYCLE_GRID 20000
 
-#define RANGE_GRID_L 19750
-#define RANGE_GRID_H 20750
+#define RANGE_GRID_L 19000        // 5%
+#define RANGE_GRID_H 21000
 
 #define TIME_DET_PHASE 100   // 2s
-#define LOSS_GRID_TIMEOUT 1000   //   100ms/0.1ms = 1000
+#define LOSS_GRID_TIMEOUT 2500   //   100ms/0.1ms = 1000
 #define TIME_SEND_CYCLE   2500000   // 2.5s
 
 /* USER CODE END PD */
@@ -148,7 +148,6 @@ DMA_HandleTypeDef hdma_usart1_tx;
 uint32_t tick_master = 0;
 volatile uint32_t cnt_send_cmd = 0;
 volatile uint32_t ovf_tim3 = 0;
-volatile uint16_t cnt_det_loss_grid = 0;
 
 uint32_t cycle_send = TIME_SEND_CYCLE/50;    
 
@@ -267,6 +266,13 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
 {
     phase->p_cur = MA_Update(&phase->filter, *(phase->adc_raw_ptr));
 
+    if(phase->phase_detected){
+      if(++phase->cnt_det_loss_grid >= LOSS_GRID_TIMEOUT) {
+        phase->mode_det = LOSS_GRID;
+        phase->cnt_det_loss_grid = 0;
+      }
+    }
+
     switch(phase->mode_det)
     {
       case WAIT_NEG:
@@ -328,10 +334,6 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
         phase->now_zc = 0;
         phase->mode_det = WAIT_NEG;
         break;
-    }
-    
-    if(phase->phase_detected){
-      if(++phase->cnt_det_loss_grid == LOSS_GRID_TIMEOUT) phase->mode_det = LOSS_GRID;
     }   
 }
 
@@ -339,7 +341,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM1) //50us
   {
-    cnt_send_cmd++;
+    if(phaseA.phase_detected) cnt_send_cmd++;
+    else cnt_send_cmd = 0;
     cnt_handle_led++;
     cnt_handle_buzzer++;
 
@@ -347,7 +350,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     {
       uint32_t now_time = GetTimeUs();
       flag_cnt_50us = 0;
-			cnt_det_loss_grid++;
 
       Process_Phase_ZC(&phaseA, now_time);
       Process_Phase_ZC(&phaseB, now_time);
@@ -501,7 +503,7 @@ int main(void)
 		tick_master++;
 		
     // Set Flag send command to LoRa module
-		if(cnt_send_cmd >= cycle_send && phaseA.phase_detected){
+		if(cnt_send_cmd >= cycle_send){
 			cnt_send_cmd = 0;
 			HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
       flag_enable_zc = true;

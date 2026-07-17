@@ -70,7 +70,6 @@ typedef enum
 {
   NORMAL = 0,
   BAT_LOW = 1,
-  ON_CHARGE = 2,
 }SLAVE_STATUS_e;
 
 typedef enum
@@ -101,7 +100,7 @@ typedef struct {
 typedef struct {
     volatile uint16_t* adc_raw_ptr;
     MA_Filter_t filter;
-    float vBat_raw, vBat_filtered, vBat_last;
+    float vBat_raw, vBat_filtered;
     uint16_t adc_filterd;
 
     uint16_t cnt_low_bat;
@@ -163,10 +162,9 @@ typedef struct {
 #define pC_L   6667
 #define pC_H   13333
 
-#define BATTERY_LOW   9.6
+#define BATTERY_LOW   9.5
 #define BATTERY_FULL  12.0
-#define V_CHARGER_ON 0.2
-#define V_CHARGER_OFF 0.2
+
 
 
 /* USER CODE END PD */
@@ -1143,13 +1141,12 @@ void Handle_LoRa_RX(void)
 {
 	if(!flag_Lora_Rx)	return;	
 	flag_Lora_Rx = false;
-  if(slave_status == BAT_LOW || slave_status == ON_CHARGE) return;
 	
 	rec_ok = LoRa_receive(&vLoRa, RX_LoRa_buff, 5);
 
 	uint8_t checksum = RX_LoRa_buff[0] + RX_LoRa_buff[1] + RX_LoRa_buff[2] + RX_LoRa_buff[3];
 
-	if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4])
+	if(RX_LoRa_buff[0] == 0xAA && checksum == RX_LoRa_buff[4] && slave_status != BAT_LOW)
 	{
 			mode_led = MODE_SET_FLASH_G;
 			rx_time = GetTimeUs();
@@ -1225,58 +1222,45 @@ void Handle_LoRa_RX(void)
 void Battery_Handle(Battery_Data_t *pBat)
 {
   pBat->now_time = HAL_GetTick();
-  if(pBat->now_time - pBat->last_time < 500) return;
+  pBat->interval_time = pBat->now_time - pBat->last_time;
+  if(pBat->interval_time < 500) return;
   pBat->last_time = pBat->now_time;
 
   pBat->vBat_raw = ((float)*(pBat->adc_raw_ptr)/4095.0f)*3.3f*4.9f;   // tinh dien ap theo "*(pBat->adc_raw_ptr)"
 
-  if(pBat->vBat_raw > pBat->vBat_last + V_CHARGER_ON){
-    slave_status = ON_CHARGE;
-  }
-
   pBat->adc_filterd = MA_Update(&pBat->filter, *(pBat->adc_raw_ptr));
 
-  pBat->vBat_filtered = ((float)pBat->adc_filterd / 4095.0f) * 3.3f * 4.9f;     // tinh dien ap theo "pBat->adc_filterd"
+  pBat->vBat_filtered = (float)(pBat->adc_filterd/4095.0f)*3.3f*4.9f;     // tinh dien ap theo "pBat->adc_filterd"
 
-  switch(slave_status)
+  if(pBat->vBat_filtered < BATTERY_LOW)  
   {
-    case NORMAL: 
-      if(pBat->vBat_filtered < BATTERY_LOW)  
-      {
-        if(pBat->cnt_low_bat < 20){		// low bat in 10s
-          pBat->cnt_low_bat++;
-        }else{
-          slave_status = BAT_LOW;
-          mode_led = MODE_STS_R;
-        }
-      }else{
-        pBat->cnt_low_bat = 0;
-      }
-      break;
-    case BAT_LOW:
-      if(pBat->vBat_filtered > BATTERY_LOW + 0.2f) slave_status = NORMAL;
-      break;
-    case ON_CHARGE:
-      mode_led = MODE_SET_FLASH_R;
-      if(pBat->vBat_filtered > BATTERY_FULL){
-        if(pBat->cnt_full_bat < 120){
-          pBat->cnt_full_bat++;
-        }else{
-          mode_led = MODE_STS_G;
-        }
-      }else{
-        pBat->cnt_full_bat = 0;
-      }
-      if(pBat->vBat_raw < pBat->vBat_last - V_CHARGER_OFF){
-        slave_status = NORMAL;
-        mode_led = MODE_OFF;
-      }
-      break;
-    default:
-      slave_status = NORMAL;
-      break;
+    if(pBat->cnt_low_bat < 60){		// low bat in 30s
+			pBat->cnt_low_bat++;
+    }else{
+			slave_status = BAT_LOW;
+      mode_led = MODE_STS_R;
+		}
+  }else{
+    pBat->cnt_low_bat = 0;
   }
-  pBat->vBat_last = pBat->vBat_filtered;
+
+  // Enable track charge process to full battery
+  if(pBat->flag_track_charge_full == false && pBat->vBat_filtered < BATTERY_FULL-0.2f && pBat->vBat_filtered > 3.0f)
+  {
+    pBat->flag_track_charge_full = true;
+  }
+
+  if(pBat->vBat_filtered > BATTERY_FULL && pBat->flag_track_charge_full){
+    if(pBat->cnt_full_bat < 120){
+			pBat->cnt_full_bat++;
+    }else{
+			slave_status = NORMAL;
+      mode_led = MODE_STS_G;
+      pBat->flag_track_charge_full = false;
+		}
+  }else{
+    pBat->cnt_full_bat = 0;
+  }
 }
 
 
