@@ -70,7 +70,7 @@
 
 #define TIME_DET_PHASE 100   // 2s
 #define LOSS_GRID_TIMEOUT 2500   //   100ms/0.1ms = 1000
-#define TIME_SEND_CYCLE   2500000   // 2.5s
+#define TIME_SEND_CYCLE   2000000   // 2s
 
 
 typedef struct
@@ -511,7 +511,7 @@ int main(void)
     // Set Flag send command to LoRa module
 		if(cnt_send_cmd >= cycle_send){
 			cnt_send_cmd = 0;
-			HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
+			//HAL_GPIO_TogglePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin);
       flag_enable_zc = true;
     }
 

@@ -1,10 +1,10 @@
 --cpu Cortex-M3
 "pdd_slave\startup_stm32f103xb.o"
 "pdd_slave\lora.o"
+"pdd_slave\flash.o"
 "pdd_slave\main.o"
 "pdd_slave\stm32f1xx_it.o"
 "pdd_slave\stm32f1xx_hal_msp.o"
-"pdd_slave\flash.o"
 "pdd_slave\stm32f1xx_hal_gpio_ex.o"
 "pdd_slave\stm32f1xx_hal_adc.o"
 "pdd_slave\stm32f1xx_hal_adc_ex.o"

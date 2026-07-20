@@ -43,7 +43,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-// #define DEBUG
+//#define DEBUG
 
 #define ON_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_SET)
 #define OFF_LED_DEBUG( )	HAL_GPIO_WritePin(LED_DEBUG_ON_BOARD_GPIO_Port, LED_DEBUG_ON_BOARD_Pin, GPIO_PIN_RESET)
@@ -377,8 +377,6 @@ static inline void Process_Phase_ZC(Phase_Data_t *phase, uint32_t now_time)
         phase->mode_det = WAIT_NEG;
         break;
     }
-    
-  
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -1005,7 +1003,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : GET_IRQ_Pin */
   GPIO_InitStruct.Pin = GET_IRQ_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GET_IRQ_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LED_PA_Pin LED_PB_Pin LED_PC_Pin */
